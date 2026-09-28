@@ -19,6 +19,12 @@ ve tekrar DWG/DXF olarak kaydetmektir.
   - Kesit özellikleri (MP): alan, çevre, ağırlık merkezi, Ix, Iy, Ixy, I1, I2, W, i — boşluklu kesitler dahil
 - **Yardımcılar:** Nesne yakalama (uç, orta, merkez, çeyrek, kesişim, orijin — F3), Orto (F8), Izgara (F7),
   pencere/çapraz seçim, komut satırı ile koordinat girişi
+- **Yakalama izi (F11):** Bir yakalama noktasında imleci ~0,5 sn bekletince nokta alınır (yeşil +). İmleç o noktanın
+  yatay/dikey hizasına, çizgi uzantısına ya da dikine gelince hizalanır; iki noktanın izlerinin kesişimine yakalanır.
+  Temel noktadan, alınan çizgiye paralel ve dik yönler de izlenir.
+- **Katmanlar:** Yeni katman, silme (nesneleri silerek veya "0"a taşıyarak), yeniden adlandırma, renk, görünürlük,
+  geçerli katman, seçili nesneleri katmana taşıma
+- **Gruplar:** Grupla (G) / Grubu çöz (UG). Gruba tıklamak tümünü seçer, Ctrl+tık tek nesne. DWG/DXF'e grup olarak yazılır.
 
 ## Koordinat girişi
 

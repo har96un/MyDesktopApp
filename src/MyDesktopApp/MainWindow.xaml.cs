@@ -35,6 +35,7 @@ public partial class MainWindow : Window
         SnapToggle.IsChecked = _editor.SnapEnabled;
         GridToggle.IsChecked = _editor.GridEnabled;
         OrthoToggle.IsChecked = _editor.OrthoEnabled;
+        TrackToggle.IsChecked = _editor.TrackingEnabled;
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -84,6 +85,8 @@ public partial class MainWindow : Window
         _editor.SnapEnabled = SnapToggle.IsChecked == true;
         _editor.GridEnabled = GridToggle.IsChecked == true;
         _editor.OrthoEnabled = OrthoToggle.IsChecked == true;
+        _editor.TrackingEnabled = TrackToggle.IsChecked == true;
+        if (!_editor.TrackingEnabled) _editor.ClearTracking();
         DrawArea.RedrawAll();
         InputBox.Focus();
     }
@@ -114,6 +117,11 @@ public partial class MainWindow : Window
                 return;
             case Key.F7:
                 GridToggle.IsChecked = !(GridToggle.IsChecked == true);
+                Toggle_Click(this, e);
+                e.Handled = true;
+                return;
+            case Key.F11:
+                TrackToggle.IsChecked = !(TrackToggle.IsChecked == true);
                 Toggle_Click(this, e);
                 e.Handled = true;
                 return;
@@ -166,7 +174,11 @@ public partial class MainWindow : Window
             $"{sel.Count} nesne: {string.Join(", ", types)}\n" +
             $"Min  {Vec2.Format(b.Min)}\n" +
             $"Max  {Vec2.Format(b.Max)}\n" +
-            $"Genişlik {Vec2.Format(b.Width)}  Yükseklik {Vec2.Format(b.Height)}";
+            $"Genişlik {Vec2.Format(b.Width)}  Yükseklik {Vec2.Format(b.Height)}" +
+            (sel.Any(e => e.GroupId != null)
+                ? "\nGrup: " + string.Join(", ", sel.Where(e => e.GroupId != null).Select(e => e.GroupId).Distinct())
+                : "") +
+            "\nKatman: " + string.Join(", ", sel.Select(e => e.Layer).Distinct());
 
         if (sel.Count > 20000)
         {
@@ -183,36 +195,186 @@ public partial class MainWindow : Window
         SectionInfo.Text = string.Join("\n", CadEditor.FormatSection(sp, b));
     }
 
-    private void RebuildLayerPanel()
+    private static readonly (string Name, EntColor C)[] Palette =
     {
-        var names = _doc.Layers.Keys.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
-        if (LayerPanel.Tag is string sig && sig == string.Join("|", names)) return;
-        LayerPanel.Tag = string.Join("|", names);
+        ("Kırmızı", new EntColor(255, 0, 0, 1)), ("Sarı", new EntColor(255, 255, 0, 2)), ("Yeşil", new EntColor(0, 255, 0, 3)),
+        ("Camgöbeği", new EntColor(0, 255, 255, 4)), ("Mavi", new EntColor(0, 0, 255, 5)), ("Eflatun", new EntColor(255, 0, 255, 6)),
+        ("Beyaz", new EntColor(255, 255, 255, 7)), ("Gri", new EntColor(128, 128, 128, 8)), ("Açık gri", new EntColor(192, 192, 192, 9)),
+        ("Turuncu", new EntColor(255, 127, 0, 30))
+    };
+
+    private void RebuildLayerPanel(bool force = false)
+    {
+        var layers = _doc.Layers.Values.OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        string sig = _doc.CurrentLayer + "#" + string.Join("|", layers.Select(l => $"{l.Name}:{l.Color}:{l.Visible}"));
+        if (!force && LayerPanel.Tag is string old && old == sig) return;
+        LayerPanel.Tag = sig;
         LayerPanel.Children.Clear();
-        foreach (var name in names)
+
+        foreach (var li in layers)
         {
-            var li = _doc.Layers[name];
-            var sp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 1, 0, 1) };
-            var swatch = new Border
+            string name = li.Name;
+            var row = new DockPanel { Margin = new Thickness(0, 1, 0, 1), Background = Brushes.Transparent };
+
+            var current = new RadioButton
             {
-                Width = 12,
-                Height = 12,
-                Margin = new Thickness(0, 0, 6, 0),
-                BorderBrush = Brushes.Gray,
-                BorderThickness = new Thickness(1),
-                Background = new SolidColorBrush(Color.FromRgb(li.Color.R, li.Color.G, li.Color.B))
+                GroupName = "CurrentLayer",
+                IsChecked = string.Equals(_doc.CurrentLayer, name, StringComparison.OrdinalIgnoreCase),
+                Focusable = false,
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = "Geçerli katman yap (yeni çizimler bu katmana gider)"
             };
-            var cb = new CheckBox { Content = name, IsChecked = li.Visible, Focusable = false };
-            cb.Click += (_, _) =>
+            current.Checked += (_, _) =>
             {
-                if (_doc.Layers.TryGetValue(name, out var l)) l.Visible = cb.IsChecked == true;
+                _doc.CurrentLayer = name;
+                AppendHistory($"Geçerli katman: {name}");
+                InputBox.Focus();
+            };
+
+            var swatch = new Button
+            {
+                Width = 16,
+                Height = 14,
+                Margin = new Thickness(2, 0, 6, 0),
+                Focusable = false,
+                BorderBrush = Brushes.Gray,
+                Background = new SolidColorBrush(Color.FromRgb(li.Color.R, li.Color.G, li.Color.B)),
+                ToolTip = "Katman rengini değiştir"
+            };
+            swatch.Click += (_, _) =>
+            {
+                var menu = new ContextMenu();
+                foreach (var (cname, col) in Palette)
+                {
+                    var mi = new MenuItem
+                    {
+                        Header = cname,
+                        Icon = new Border { Width = 12, Height = 12, Background = new SolidColorBrush(Color.FromRgb(col.R, col.G, col.B)) }
+                    };
+                    mi.Click += (_, _) => ChangeLayerColor(name, col);
+                    menu.Items.Add(mi);
+                }
+                swatch.ContextMenu = menu;
+                menu.PlacementTarget = swatch;
+                menu.IsOpen = true;
+            };
+
+            var visible = new CheckBox
+            {
+                Content = name,
+                IsChecked = li.Visible,
+                Focusable = false,
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = $"Görünürlük · {_doc.CountOnLayer(name)} nesne"
+            };
+            visible.Click += (_, _) =>
+            {
+                if (_doc.Layers.TryGetValue(name, out var l)) l.Visible = visible.IsChecked == true;
+                if (!(visible.IsChecked == true)) _doc.SetSelection(_doc.Selection.Where(x => !string.Equals(x.Layer, name, StringComparison.OrdinalIgnoreCase)).ToList());
                 DrawArea.RedrawAll();
                 InputBox.Focus();
             };
-            sp.Children.Add(swatch);
-            sp.Children.Add(cb);
-            LayerPanel.Children.Add(sp);
+
+            var ctx = new ContextMenu();
+            var miCur = new MenuItem { Header = "Geçerli yap" };
+            miCur.Click += (_, _) => { _doc.CurrentLayer = name; RebuildLayerPanel(true); };
+            var miMove = new MenuItem { Header = "Seçili nesneleri bu katmana taşı" };
+            miMove.Click += (_, _) => _editor.MoveToLayer(_doc.Selection.ToList(), name);
+            var miSelect = new MenuItem { Header = "Bu katmandaki nesneleri seç" };
+            miSelect.Click += (_, _) => _doc.SetSelection(_doc.Entities.Where(x => string.Equals(x.Layer, name, StringComparison.OrdinalIgnoreCase)));
+            var miRename = new MenuItem { Header = "Yeniden adlandır...", IsEnabled = name != "0" };
+            miRename.Click += (_, _) => RenameLayer(name);
+            var miDelete = new MenuItem { Header = "Katmanı sil", IsEnabled = name != "0" };
+            miDelete.Click += (_, _) => DeleteLayer(name);
+            ctx.Items.Add(miCur);
+            ctx.Items.Add(miMove);
+            ctx.Items.Add(miSelect);
+            ctx.Items.Add(new Separator());
+            ctx.Items.Add(miRename);
+            ctx.Items.Add(miDelete);
+            row.ContextMenu = ctx;
+
+            DockPanel.SetDock(current, Dock.Left);
+            DockPanel.SetDock(swatch, Dock.Left);
+            row.Children.Add(current);
+            row.Children.Add(swatch);
+            row.Children.Add(visible);
+            LayerPanel.Children.Add(row);
         }
+    }
+
+    private void ChangeLayerColor(string name, EntColor col)
+    {
+        if (!_doc.Layers.TryGetValue(name, out var l)) return;
+        _doc.SaveUndo();
+        l.Color = col;
+        _editor.NotifyDocumentChanged();
+        RebuildLayerPanel(true);
+        InputBox.Focus();
+    }
+
+    private void NewLayer_Click(object sender, RoutedEventArgs e)
+    {
+        int i = 1;
+        while (_doc.Layers.ContainsKey("Katman" + i)) i++;
+        var name = InputDialog.Ask(this, "Yeni katman", "Katman adı:", "Katman" + i);
+        if (string.IsNullOrWhiteSpace(name)) { InputBox.Focus(); return; }
+        name = name.Trim();
+        if (_doc.Layers.ContainsKey(name))
+        {
+            MessageBox.Show(this, $"\"{name}\" adında bir katman zaten var.", "Katman");
+            return;
+        }
+        _doc.SaveUndo();
+        var li = _doc.EnsureLayer(name);
+        li.Color = Palette[(_doc.Layers.Count - 1) % Palette.Length].C;
+        _doc.CurrentLayer = name;
+        _editor.NotifyDocumentChanged();
+        RebuildLayerPanel(true);
+        AppendHistory($"Katman oluşturuldu ve geçerli yapıldı: {name}");
+        InputBox.Focus();
+    }
+
+    private void MoveSelToLayer_Click(object sender, RoutedEventArgs e)
+    {
+        if (_doc.Selection.Count == 0) { AppendHistory("Önce taşınacak nesneleri seçin."); return; }
+        _editor.MoveToLayer(_doc.Selection.ToList(), _doc.CurrentLayer);
+        InputBox.Focus();
+    }
+
+    private void RenameLayer(string name)
+    {
+        var nn = InputDialog.Ask(this, "Katmanı yeniden adlandır", "Yeni ad:", name);
+        if (string.IsNullOrWhiteSpace(nn) || nn.Trim() == name) return;
+        _doc.SaveUndo();
+        if (!_doc.RenameLayer(name, nn))
+        {
+            MessageBox.Show(this, "Bu ad kullanılamıyor (boş veya zaten var).", "Katman");
+            return;
+        }
+        _editor.NotifyDocumentChanged();
+        RebuildLayerPanel(true);
+        AppendHistory($"Katman yeniden adlandırıldı: {name} → {nn.Trim()}");
+    }
+
+    private void DeleteLayer(string name)
+    {
+        int count = _doc.CountOnLayer(name);
+        bool deleteEntities = false;
+        if (count > 0)
+        {
+            var r = MessageBox.Show(this,
+                $"\"{name}\" katmanında {count} nesne var.\n\nEvet: nesneler de silinsin\nHayır: nesneler \"0\" katmanına taşınsın\nİptal: vazgeç",
+                "Katmanı sil", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+            if (r == MessageBoxResult.Cancel) return;
+            deleteEntities = r == MessageBoxResult.Yes;
+        }
+        _doc.SaveUndo();
+        _doc.DeleteLayer(name, deleteEntities);
+        _editor.NotifyDocumentChanged();
+        _doc.RaiseSelectionChanged();
+        RebuildLayerPanel(true);
+        AppendHistory($"Katman silindi: {name}" + (count > 0 ? (deleteEntities ? $" ({count} nesne silindi)" : $" ({count} nesne \"0\" katmanına taşındı)") : ""));
     }
 
     private void UpdateTitle()

@@ -14,6 +14,7 @@ public static class CadFileIO
     public sealed class ImportReport
     {
         public int Imported { get; set; }
+        public int Groups { get; set; }
         public Dictionary<string, int> Skipped { get; } = new();
         public List<string> Notes { get; } = new();
 
@@ -24,7 +25,7 @@ public static class CadFileIO
 
         public override string ToString()
         {
-            var s = $"{Imported} nesne yüklendi.";
+            var s = $"{Imported} nesne yüklendi" + (Groups > 0 ? $", {Groups} grup." : ".");
             if (Skipped.Count > 0)
                 s += " Desteklenmeyen/atlanan: " + string.Join(", ", Skipped.Select(k => $"{k.Key}×{k.Value}"));
             return s;
@@ -45,8 +46,36 @@ public static class CadFileIO
             li.Visible = layer.IsOn;
         }
 
+        // Her kaynak nesneden üretilen nesneleri izle (gruplar için)
+        var produced = new Dictionary<AE.Entity, List<Entity>>();
         foreach (var e in src.Entities)
+        {
+            int before = target.Entities.Count;
             Convert(e, target, report, null, 0);
+            if (target.Entities.Count > before)
+                produced[e] = target.Entities.GetRange(before, target.Entities.Count - before);
+        }
+
+        // Gruplar
+        try
+        {
+            if (src.Groups != null)
+            {
+                foreach (var g in src.Groups)
+                {
+                    string name = string.IsNullOrWhiteSpace(g.Name) || g.Name.StartsWith("*") ? target.NewGroupName() : g.Name;
+                    int n = 0;
+                    foreach (var ge in g.Entities)
+                        if (produced.TryGetValue(ge, out var list))
+                            foreach (var me in list) { me.GroupId = name; n++; }
+                    if (n > 0) report.Groups++;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            report.Notes.Add("Gruplar okunamadı: " + ex.Message);
+        }
 
         return report;
     }
@@ -293,7 +322,21 @@ public static class CadFileIO
 
     public static void Save(string path, Model.CadDocument source, IEnumerable<Entity>? only = null)
     {
+        try
+        {
+            SaveCore(path, source, only, withGroups: true);
+        }
+        catch when (source.Entities.Any(e => e.GroupId != null))
+        {
+            // Grup yazımı desteklenmezse gruplar olmadan kaydet
+            SaveCore(path, source, only, withGroups: false);
+        }
+    }
+
+    private static void SaveCore(string path, Model.CadDocument source, IEnumerable<Entity>? only, bool withGroups)
+    {
         var doc = new A.CadDocument();
+        var groupMap = new Dictionary<string, List<AE.Entity>>();
 
         foreach (var li in source.Layers.Values)
         {
@@ -314,8 +357,17 @@ public static class CadFileIO
                 if (doc.Layers.TryGetValue(e.Layer, out var layer)) ae.Layer = layer;
                 ae.Color = e.Color is { } c ? ToAcadColor(c) : A.Color.ByLayer;
                 doc.Entities.Add(ae);
+                if (e.GroupId != null)
+                {
+                    if (!groupMap.TryGetValue(e.GroupId, out var gl)) groupMap[e.GroupId] = gl = new List<AE.Entity>();
+                    gl.Add(ae);
+                }
             }
         }
+
+        if (withGroups && doc.Groups != null)
+            foreach (var kv in groupMap)
+                doc.Groups.CreateGroup(kv.Key, kv.Value);
 
         string ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
         if (ext == ".dwg") DwgWriter.Write(path, doc);

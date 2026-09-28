@@ -77,6 +77,19 @@ public sealed class CadDocument
     {
         foreach (var l in other.Layers.Values)
             if (!Layers.ContainsKey(l.Name)) Layers[l.Name] = l.Clone();
+
+        // Çakışan grup adlarını yeniden adlandır
+        var existing = new HashSet<string>(GroupNames);
+        foreach (var g in other.GroupNames)
+            if (g.StartsWith("Grup", StringComparison.Ordinal) && int.TryParse(g.AsSpan(4), out int gn) && gn > _lastGroupNo)
+                _lastGroupNo = gn;
+        var map = new Dictionary<string, string>();
+        foreach (var e in other.Entities)
+        {
+            if (e.GroupId == null || !existing.Contains(e.GroupId)) continue;
+            if (!map.TryGetValue(e.GroupId, out var nn)) map[e.GroupId] = nn = NewGroupName();
+            e.GroupId = nn;
+        }
         Entities.AddRange(other.Entities);
     }
 
@@ -160,6 +173,83 @@ public sealed class CadDocument
         if (Selection.Count == 0) return;
         Selection.Clear();
         RaiseSelectionChanged();
+    }
+
+    // ================================================================ Gruplar
+
+    private int _lastGroupNo;
+
+    /// <summary>Kullanılmayan yeni bir grup adı üretir (Grup1, Grup2...).</summary>
+    public string NewGroupName()
+    {
+        int max = _lastGroupNo;
+        foreach (var e in Entities)
+        {
+            if (e.GroupId != null && e.GroupId.StartsWith("Grup", StringComparison.Ordinal) &&
+                int.TryParse(e.GroupId.AsSpan(4), out int n) && n > max)
+                max = n;
+        }
+        _lastGroupNo = max + 1;
+        return "Grup" + _lastGroupNo;
+    }
+
+    /// <summary>Verilen nesneleri, grup üyeleriyle birlikte döndürür.</summary>
+    public IEnumerable<Entity> ExpandGroups(IEnumerable<Entity> items)
+    {
+        var list = items.ToList();
+        var groups = new HashSet<string>(list.Where(e => e.GroupId != null).Select(e => e.GroupId!));
+        if (groups.Count == 0) return list;
+        var set = new HashSet<Entity>(list);
+        foreach (var e in Entities)
+            if (e.GroupId != null && groups.Contains(e.GroupId)) set.Add(e);
+        return set;
+    }
+
+    public IEnumerable<string> GroupNames => Entities.Where(e => e.GroupId != null).Select(e => e.GroupId!).Distinct();
+
+    /// <summary>Kopyalanan nesnelere (orijinalden ayrı) yeni grup adları verir.</summary>
+    public void AssignNewGroupIds(IEnumerable<Entity> clones)
+    {
+        var map = new Dictionary<string, string>();
+        foreach (var e in clones)
+        {
+            if (e.GroupId == null) continue;
+            if (!map.TryGetValue(e.GroupId, out var nn))
+            {
+                nn = NewGroupName();
+                map[e.GroupId] = nn;
+            }
+            e.GroupId = nn;
+        }
+    }
+
+    // ================================================================ Katmanlar
+
+    public int CountOnLayer(string name) => Entities.Count(e => string.Equals(e.Layer, name, StringComparison.OrdinalIgnoreCase));
+
+    public bool RenameLayer(string oldName, string newName)
+    {
+        newName = newName.Trim();
+        if (newName.Length == 0 || !Layers.TryGetValue(oldName, out var li)) return false;
+        if (Layers.ContainsKey(newName) && !string.Equals(oldName, newName, StringComparison.OrdinalIgnoreCase)) return false;
+        Layers.Remove(oldName);
+        li.Name = newName;
+        Layers[newName] = li;
+        foreach (var e in Entities)
+            if (string.Equals(e.Layer, oldName, StringComparison.OrdinalIgnoreCase)) e.Layer = newName;
+        if (string.Equals(CurrentLayer, oldName, StringComparison.OrdinalIgnoreCase)) CurrentLayer = newName;
+        return true;
+    }
+
+    /// <summary>Katmanı siler. Nesneler silinir ya da "0" katmanına taşınır.</summary>
+    public void DeleteLayer(string name, bool deleteEntities)
+    {
+        if (name == "0" || !Layers.ContainsKey(name)) return;
+        var items = Entities.Where(e => string.Equals(e.Layer, name, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (deleteEntities) Remove(items);
+        else foreach (var e in items) e.Layer = "0";
+        Layers.Remove(name);
+        if (string.Equals(CurrentLayer, name, StringComparison.OrdinalIgnoreCase)) CurrentLayer = "0";
     }
 
     public void RaiseChanged() => Changed?.Invoke(this, EventArgs.Empty);

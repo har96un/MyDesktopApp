@@ -38,6 +38,9 @@ public sealed partial class CadEditor
         Reg("EXPLODE", "Polyline'ları parçalar", CmdExplode, "X", "PATLAT");
         Reg("OFFSET", "Paralel kopya (ötele)", CmdOffset, "O", "OTELE");
         Reg("JOIN", "Uç uca çizgi/yay/polyline'ları tek polyline yapar", CmdJoin, "J", "BIRLESTIR");
+        Reg("GROUP", "Seçili nesneleri gruplar", CmdGroup, "G", "GRUP", "GRUPLA");
+        Reg("UNGROUP", "Grubu çözer", CmdUngroup, "UG", "GRUPCOZ");
+        Reg("CHANGELAYER", "Seçili nesneleri geçerli katmana taşır", CmdToCurrentLayer, "LAYCUR", "KATMANATASI");
 
         // Profil / koordinat
         Reg("ORIGIN", "Seçimin referans noktasını 0,0'a taşır", CmdOrigin, "OR", "SIFIR", "00");
@@ -324,12 +327,15 @@ public sealed partial class CadEditor
             {
                 if (first) Doc.SaveUndo();
                 first = false;
+                var clones = new List<Entity>();
                 foreach (var e in sel)
                 {
                     var c = e.Clone();
                     c.Transform(m);
+                    clones.Add(c);
                     Doc.Add(c);
                 }
+                Doc.AssignNewGroupIds(clones);
                 NotifyDocumentChanged();
             }
             else
@@ -454,12 +460,15 @@ public sealed partial class CadEditor
         else
         {
             Doc.SaveUndo();
+            var clones = new List<Entity>();
             foreach (var e in sel)
             {
                 var c = e.Clone();
                 c.Transform(m);
+                clones.Add(c);
                 Doc.Add(c);
             }
+            Doc.AssignNewGroupIds(clones);
             NotifyDocumentChanged();
         }
     }
@@ -504,6 +513,7 @@ public sealed partial class CadEditor
                 };
                 ne.Layer = pl.Layer;
                 ne.Color = pl.Color;
+                ne.GroupId = pl.GroupId;
                 Doc.Add(ne);
                 made++;
             }
@@ -735,11 +745,56 @@ public sealed partial class CadEditor
         {
             pl.Layer = first.Layer;
             pl.Color = first.Color;
+            pl.GroupId = first.GroupId;
             Doc.Add(pl);
         }
         Doc.SetSelection(result);
         NotifyDocumentChanged();
         Log($"  {parts.Count} nesne → {result.Count} polyline ({result.Count(p => p.Closed)} kapalı).");
+    }
+
+    // ================================================================ Grup / katman komutları
+
+    private async Task CmdGroup()
+    {
+        var sel = await GetSelection();
+        if (sel.Count < 2) { Log("Grup için en az iki nesne seçin."); return; }
+        Doc.SaveUndo();
+        string name = Doc.NewGroupName();
+        foreach (var e in sel) e.GroupId = name;
+        NotifyDocumentChanged();
+        Doc.RaiseSelectionChanged();
+        Log($"  {sel.Count} nesne \"{name}\" olarak gruplandı. (Ctrl+tık: gruptan tek nesne seçer)");
+    }
+
+    private async Task CmdUngroup()
+    {
+        var sel = await GetSelection();
+        var groups = sel.Where(e => e.GroupId != null).Select(e => e.GroupId!).Distinct().ToList();
+        if (groups.Count == 0) { Log("Seçimde grup yok."); return; }
+        Doc.SaveUndo();
+        foreach (var e in Doc.Entities)
+            if (e.GroupId != null && groups.Contains(e.GroupId)) e.GroupId = null;
+        NotifyDocumentChanged();
+        Doc.RaiseSelectionChanged();
+        Log($"  Çözülen grup: {string.Join(", ", groups)}");
+    }
+
+    private async Task CmdToCurrentLayer()
+    {
+        var sel = await GetSelection();
+        MoveToLayer(sel, Doc.CurrentLayer);
+    }
+
+    public void MoveToLayer(IReadOnlyCollection<Entity> items, string layer)
+    {
+        if (items.Count == 0) return;
+        Doc.SaveUndo();
+        Doc.EnsureLayer(layer);
+        foreach (var e in items) e.Layer = layer;
+        NotifyDocumentChanged();
+        Doc.RaiseSelectionChanged();
+        Log($"  {items.Count} nesne \"{layer}\" katmanına taşındı.");
     }
 
     // ================================================================ Profil komutları
@@ -912,7 +967,11 @@ public sealed partial class CadEditor
         foreach (var c in _commands.Values)
             Log($"  {c.Name,-16} {string.Join(", ", c.Aliases),-18} {c.Description}");
         Log("Koordinat girişi: x,y  (mutlak) | @dx,dy (göreli) | @uzunluk<açı (kutupsal) | sayı (imleç yönünde mesafe)");
-        Log("F3: Nesne yakalama  F7: Izgara  F8: Orto  Esc: İptal  Enter/Boşluk/Sağ tık: Onay/Tekrar");
+        Log("F3: Nesne yakalama  F7: Izgara  F8: Orto  F11: Yakalama izi  Esc: İptal  Enter/Boşluk/Sağ tık: Onay/Tekrar");
+        Log("Yakalama izi: bir uç/orta/merkez noktasının üzerinde imleci ~0,5 sn bekletin (yeşil +). İmleç o noktanın yatay/dikey hizasına,");
+        Log("  bağlı çizginin uzantısına veya dikine gelince hizaya oturur; iki noktanın izlerinin kesişimine de yakalanır. Temel noktadan");
+        Log("  alınan çizgiye paralel/dik yönler de izlenir. Aynı noktada tekrar bekletmek izi kaldırır.");
+        Log("Gruplar: G ile grupla, UG ile çöz. Gruptaki bir nesneye tıklamak tüm grubu seçer; Ctrl+tık tek nesneyi seçer.");
         return Task.CompletedTask;
     }
 }

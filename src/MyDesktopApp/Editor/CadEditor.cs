@@ -174,6 +174,7 @@ public sealed partial class CadEditor
             PreviewEntities.Clear();
             WindowStart = null;
             ActiveSnap = null;
+            ClearTracking();
             SetPrompt("Komut:");
             SceneChanged?.Invoke();
             OverlayChanged?.Invoke();
@@ -212,7 +213,11 @@ public sealed partial class CadEditor
     {
         var p = _pending;
         _pending = null;
-        if (input.Type == InputType.Point) _lastPoint = input.Point;
+        if (input.Type == InputType.Point)
+        {
+            _lastPoint = input.Point;
+            ClearTracking();
+        }
         p?.TrySetResult(input);
     }
 
@@ -406,12 +411,20 @@ public sealed partial class CadEditor
         ActiveSnap = null;
         var c = world;
 
+        ActiveTrackLines.Clear();
+        TrackLabel = null;
         if (Mode == InputMode.Point)
         {
             if (SnapEnabled)
             {
                 var s = FindSnap(world);
                 if (s != null) { ActiveSnap = s; c = s.Value.Point; }
+            }
+            UpdateHover(ActiveSnap);
+            if (ActiveSnap == null && SnapEnabled && ApplyTracking(world, out var tr))
+            {
+                c = tr;
+                ActiveSnap = new SnapPoint(tr, SnapKind.Tracking);
             }
             if (OrthoEnabled && ActiveSnap == null && _request?.Base is { } b)
             {
@@ -435,7 +448,7 @@ public sealed partial class CadEditor
     }
 
     /// <summary>Sol tık. screenPos piksel cinsinden, pencere sürükleme algısı için.</summary>
-    public void LeftDown(Vec2 world, System.Windows.Point screenPos, bool shift)
+    public void LeftDown(Vec2 world, System.Windows.Point screenPos, bool shift, bool ctrl = false)
     {
         if (Mode == InputMode.Point)
         {
@@ -454,8 +467,13 @@ public sealed partial class CadEditor
         var hit = HitTest(world);
         if (hit != null)
         {
-            if (shift) Doc.Selection.Remove(hit);
-            else Doc.Selection.Add(hit);
+            // Ctrl+tık: grubun içinden tek nesne seç
+            var targets = ctrl ? new[] { hit } : Doc.ExpandGroups(new[] { hit });
+            foreach (var t in targets)
+            {
+                if (shift) Doc.Selection.Remove(t);
+                else Doc.Selection.Add(t);
+            }
             Doc.RaiseSelectionChanged();
             return;
         }
@@ -485,7 +503,7 @@ public sealed partial class CadEditor
         _windowDownScreen = null;
         var box = BBox.FromPoints(start, end);
         bool crossing = end.X < start.X;
-        var found = Doc.VisibleEntities.Where(e => crossing ? e.CrossesWindow(box) : e.InsideWindow(box)).ToList();
+        var found = Doc.ExpandGroups(Doc.VisibleEntities.Where(e => crossing ? e.CrossesWindow(box) : e.InsideWindow(box))).ToList();
         foreach (var e in found)
         {
             if (shift) Doc.Selection.Remove(e);

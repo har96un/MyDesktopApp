@@ -42,6 +42,10 @@ public sealed class CadCanvas : FrameworkElement
     private static readonly Pen WindowPenC = FrozenPen(Color.FromRgb(0x4D, 0xFF, 0x8D), 1, dashed: true);
     private static readonly Brush WindowFillW = Frozen(new SolidColorBrush(Color.FromArgb(0x30, 0x4D, 0x8D, 0xFF)));
     private static readonly Brush WindowFillC = Frozen(new SolidColorBrush(Color.FromArgb(0x30, 0x4D, 0xFF, 0x8D)));
+    private static readonly Pen TrackPen = FrozenPen(Color.FromArgb(0xD0, 0x7C, 0xFC, 0x00), 1, dashed: true);
+    private static readonly Pen TrackMarkPen = FrozenPen(Color.FromRgb(0x7C, 0xFC, 0x00), 1.5);
+    private static readonly Brush TrackTextBrush = Frozen(new SolidColorBrush(Color.FromRgb(0x7C, 0xFC, 0x00)));
+    private static readonly Brush TipBack = Frozen(new SolidColorBrush(Color.FromArgb(0xD0, 0x10, 0x14, 0x18)));
     private static readonly Brush OriginText = Frozen(new SolidColorBrush(Color.FromArgb(0xC0, 0xFF, 0xFF, 0xFF)));
 
     /// <summary>İmleç dünya koordinatı değişti.</summary>
@@ -68,9 +72,13 @@ public sealed class CadCanvas : FrameworkElement
 
     private bool _mouseInside;
 
+    private readonly System.Windows.Threading.DispatcherTimer _tickTimer = new() { Interval = TimeSpan.FromMilliseconds(100) };
+
     public void Attach(CadEditor editor)
     {
         _editor = editor;
+        _tickTimer.Tick += (_, _) => _editor?.Tick();
+        _tickTimer.Start();
         editor.PixelSizeProvider = () => 1.0 / _scale;
         editor.ZoomExtentsAction = ZoomExtents;
         editor.SceneChanged += ScheduleRedraw;
@@ -158,7 +166,7 @@ public sealed class CadCanvas : FrameworkElement
         if (e.ChangedButton == MouseButton.Left)
         {
             CaptureMouse();
-            _editor.LeftDown(ToWorld(pos), pos, Keyboard.Modifiers.HasFlag(ModifierKeys.Shift));
+            _editor.LeftDown(ToWorld(pos), pos, Keyboard.Modifiers.HasFlag(ModifierKeys.Shift), Keyboard.Modifiers.HasFlag(ModifierKeys.Control));
             e.Handled = true;
         }
         else if (e.ChangedButton == MouseButton.Right)
@@ -376,6 +384,30 @@ public sealed class CadCanvas : FrameworkElement
             dc.DrawRectangle(crossing ? WindowFillC : WindowFillW, crossing ? WindowPenC : WindowPenW, new Rect(a, b));
         }
 
+        // Yakalama izi: alınmış noktalar ve aktif hizalama çizgileri
+        foreach (var tp in ed.TrackPoints)
+        {
+            var q = ToScreen(tp.P);
+            dc.DrawLine(TrackMarkPen, new Point(q.X - 5, q.Y), new Point(q.X + 5, q.Y));
+            dc.DrawLine(TrackMarkPen, new Point(q.X, q.Y - 5), new Point(q.X, q.Y + 5));
+        }
+        double far = (ActualWidth + ActualHeight) * 2 / _scale;
+        foreach (var tl in ed.ActiveTrackLines)
+        {
+            // İz noktasından imleç tarafına doğru uzanan çizgi
+            var dir = tl.Dir;
+            if (Vec2.Dot(ed.Cursor - tl.Origin, dir) < 0) dir = -dir;
+            dc.DrawLine(TrackPen, ToScreen(tl.Origin), ToScreen(tl.Origin + dir * far));
+        }
+        if (ed.TrackLabel is { } label && ed.ActiveTrackLines.Count > 0)
+        {
+            var ft = new FormattedText(label, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, _typeface, 11, TrackTextBrush,
+                VisualTreeHelper.GetDpi(this).PixelsPerDip);
+            var at = new Point(cur.X + 16, cur.Y + 14);
+            dc.DrawRectangle(TipBack, null, new Rect(at.X - 3, at.Y - 1, ft.Width + 6, ft.Height + 2));
+            dc.DrawText(ft, at);
+        }
+
         if (ed.ActiveSnap is { } snap) DrawSnapMarker(dc, ToScreen(snap.Point), snap.Kind);
 
         if (_mouseInside)
@@ -426,6 +458,10 @@ public sealed class CadCanvas : FrameworkElement
                     dc.DrawGeometry(null, SnapPen, g);
                     break;
                 }
+            case SnapKind.Tracking:
+                dc.DrawLine(TrackMarkPen, new Point(p.X - s, p.Y - s), new Point(p.X + s, p.Y + s));
+                dc.DrawLine(TrackMarkPen, new Point(p.X - s, p.Y + s), new Point(p.X + s, p.Y - s));
+                break;
             case SnapKind.Intersection:
                 dc.DrawLine(SnapPen, new Point(p.X - s, p.Y - s), new Point(p.X + s, p.Y + s));
                 dc.DrawLine(SnapPen, new Point(p.X - s, p.Y + s), new Point(p.X + s, p.Y - s));

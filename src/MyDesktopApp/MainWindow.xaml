@@ -69,6 +69,8 @@
                 <Button Style="{StaticResource ToolBtn}" Content="Birleştir" Tag="JOIN" Click="Cmd_Click" ToolTip="Uç uca nesneleri polyline yap (J)"/>
                 <Button Style="{StaticResource ToolBtn}" Content="Patlat" Tag="EXPLODE" Click="Cmd_Click" ToolTip="Polyline'ı parçala (X)"/>
                 <Button Style="{StaticResource ToolBtn}" Content="Sil" Tag="ERASE" Click="Cmd_Click" ToolTip="Sil (E / Del)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Grupla" Tag="GROUP" Click="Cmd_Click" ToolTip="Seçili nesneleri grupla (G). Ctrl+tık gruptan tek nesne seçer."/>
+                <Button Style="{StaticResource ToolBtn}" Content="Grubu Çöz" Tag="UNGROUP" Click="Cmd_Click" ToolTip="Grubu çöz (UG)"/>
                 <Separator/>
                 <Button Style="{StaticResource ToolBtn}" Content="Ölç" Tag="DIST" Click="Cmd_Click" ToolTip="Mesafe (DI)"/>
                 <Button Style="{StaticResource ToolBtn}" Content="Tümünü Göster" Tag="ZOOMEXTENTS" Click="Cmd_Click" ToolTip="Zoom Extents (ZE) / orta tuşa çift tık"/>
@@ -105,6 +107,10 @@
             <StatusBarItem>
                 <ToggleButton x:Name="OrthoToggle" Content="ORTO (F8)" Focusable="False" Padding="6,1" Click="Toggle_Click"/>
             </StatusBarItem>
+            <StatusBarItem>
+                <ToggleButton x:Name="TrackToggle" Content="YAKALAMA İZİ (F11)" Focusable="False" Padding="6,1" Click="Toggle_Click"
+                              ToolTip="Bir yakalama noktası üzerinde imleci yarım saniye bekletin; o noktanın yatay/dikey hizası, çizgi uzantısı ve diki izlenir. İki izin kesişimine yakalanır."/>
+            </StatusBarItem>
             <Separator/>
             <StatusBarItem>
                 <TextBlock x:Name="StatusText" Foreground="#FF555555"/>
@@ -136,7 +142,13 @@
                     <TextBlock Style="{StaticResource PanelHeader}" Text="Kesit Özellikleri"/>
                     <TextBlock x:Name="SectionInfo" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"/>
 
-                    <TextBlock Style="{StaticResource PanelHeader}" Text="Katmanlar (görünürlük)"/>
+                    <TextBlock Style="{StaticResource PanelHeader}" Text="Katmanlar"/>
+                    <WrapPanel Margin="0,0,0,4">
+                        <Button Content="+ Yeni" Padding="6,1" Margin="0,0,4,0" Focusable="False" Click="NewLayer_Click" ToolTip="Yeni katman oluştur ve geçerli yap"/>
+                        <Button Content="Seçileni geçerliye taşı" Padding="6,1" Focusable="False" Click="MoveSelToLayer_Click"
+                                ToolTip="Seçili nesneleri geçerli (işaretli) katmana taşır"/>
+                    </WrapPanel>
+                    <TextBlock FontSize="10" Foreground="#FF777777" Text="● geçerli katman · renk kutusu: renk değiştir · sağ tık: yeniden adlandır / sil" TextWrapping="Wrap" Margin="0,0,0,4"/>
                     <StackPanel x:Name="LayerPanel"/>
 
                     <TextBlock Style="{StaticResource PanelHeader}" Text="İpuçları"/>

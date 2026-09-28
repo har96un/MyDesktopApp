@@ -14,7 +14,8 @@ public enum SnapKind
     Intersection,
     Insertion,
     Origin,
-    Nearest
+    Nearest,
+    Tracking
 }
 
 public readonly record struct SnapPoint(Vec2 Point, SnapKind Kind);
@@ -25,6 +26,8 @@ public abstract class Entity
     public string Layer { get; set; } = "0";
     /// <summary>null = Katmandan (ByLayer).</summary>
     public EntColor? Color { get; set; }
+    /// <summary>Nesnenin ait olduğu grup adı (null = grupsuz).</summary>
+    public string? GroupId { get; set; }
 
     public abstract string TypeName { get; }
 
