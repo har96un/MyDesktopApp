@@ -7,6 +7,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <RootNamespace>MyDesktopApp</RootNamespace>
+    <AssemblyName>ProfilCAD</AssemblyName>
+    <Product>Profil CAD</Product>
+    <Version>0.1.0</Version>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- DWG / DXF okuma-yazma (MIT lisanslı) -->
+    <PackageReference Include="ACadSharp" Version="3.*" />
+  </ItemGroup>
 
 </Project>
