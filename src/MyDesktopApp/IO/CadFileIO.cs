@@ -53,7 +53,7 @@ public static class CadFileIO
 
     private static A.CadDocument ReadAny(string path)
     {
-        string ext = Path.GetExtension(path).ToLowerInvariant();
+        string ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
         if (ext == ".dwg") return DwgReader.Read(path);
         if (ext == ".dxf") return DxfReader.Read(path);
         throw new NotSupportedException("Yalnızca .dwg ve .dxf dosyaları desteklenir.");
@@ -317,7 +317,7 @@ public static class CadFileIO
             }
         }
 
-        string ext = Path.GetExtension(path).ToLowerInvariant();
+        string ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
         if (ext == ".dwg") DwgWriter.Write(path, doc);
         else DxfWriter.Write(path, doc, false);
     }

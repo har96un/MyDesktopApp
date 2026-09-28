@@ -103,7 +103,7 @@ public partial class MainWindow : Window
                 SubmitInput();
                 e.Handled = true;
                 return;
-            case Key.Space when _editor.Mode != InputMode.Text:
+            case Key.Space when _editor.Mode != Editor.InputMode.Text:
                 SubmitInput();
                 e.Handled = true;
                 return;
