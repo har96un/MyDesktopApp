@@ -205,6 +205,64 @@ public static class CadFileIO
                     break;
                 }
 
+            case AE.DimensionLinear dl:
+                AddDimension(dl, DimKind.Linear, doc, rep, layer, color);
+                break;
+            case AE.DimensionAligned da:
+                AddDimension(da, DimKind.Aligned, doc, rep, layer, color);
+                break;
+            case AE.DimensionRadius dr:
+                AddDimension(dr, DimKind.Radius, doc, rep, layer, color);
+                break;
+            case AE.DimensionDiameter dd:
+                AddDimension(dd, DimKind.Diameter, doc, rep, layer, color);
+                break;
+            case AE.DimensionAngular2Line dang:
+                AddDimension(dang, DimKind.Angular, doc, rep, layer, color);
+                break;
+            case AE.Dimension other:
+                {
+                    // Diğer ölçü türleri: blok geometrisini al
+                    if (other.Block != null && depth < 16)
+                        foreach (var sub in other.Block.Entities.ToList())
+                            Convert(sub, doc, rep, null, depth + 1);
+                    else rep.Skip("Ölçü");
+                    break;
+                }
+
+            case AE.Hatch ht:
+                {
+                    var h = new HatchEntity
+                    {
+                        Pattern = ht.IsSolid ? "SOLID" : NormalizePattern(ht.Pattern?.Name),
+                        Scale = ht.PatternScale > 0 ? ht.PatternScale : 1,
+                        Angle = ht.PatternAngle
+                    };
+                    bool flip = ht.Normal.Z < 0;
+                    foreach (var path in ht.Paths)
+                    {
+                        var loop = new List<PolyVertex>();
+                        var poly = path.Edges.OfType<AE.Hatch.BoundaryPath.Polyline>().FirstOrDefault();
+                        if (poly != null)
+                        {
+                            foreach (var v in poly.Vertices)
+                                loop.Add(new PolyVertex(Ocs(new XYZ(v.X, v.Y, ht.Elevation), ht.Normal), flip ? -v.Z : v.Z));
+                        }
+                        else
+                        {
+                            foreach (var v in path.GetPoints(32))
+                            {
+                                var p = Ocs(new XYZ(v.X, v.Y, ht.Elevation), ht.Normal);
+                                if (loop.Count == 0 || !loop[^1].P.IsClose(p, 1e-9)) loop.Add(new PolyVertex(p));
+                            }
+                            if (loop.Count > 1 && loop[0].P.IsClose(loop[^1].P, 1e-9)) loop.RemoveAt(loop.Count - 1);
+                        }
+                        if (loop.Count >= 3) h.Loops.Add(loop);
+                    }
+                    if (h.Loops.Count > 0) Add(h); else rep.Skip("Tarama");
+                    break;
+                }
+
             case AE.AttributeDefinition:
                 break;   // Blok tanımındaki öznitelik şablonları çizilmez
 
@@ -251,6 +309,62 @@ public static class CadFileIO
     }
 
     private static Vec2 V(XYZ p) => new(p.X, p.Y);
+
+    private static string NormalizePattern(string? name)
+    {
+        if (string.IsNullOrEmpty(name)) return "ANSI31";
+        var up = name.ToUpperInvariant();
+        return HatchEntity.Patterns.Contains(up) ? up : "ANSI31";
+    }
+
+    private static void AddDimension(AE.Dimension src, DimKind kind, Model.CadDocument doc, ImportReport rep, string layer, EntColor? color)
+    {
+        var d = new DimensionEntity { Kind = kind, Layer = layer, Color = color };
+        try
+        {
+            var st = src.GetActiveDimensionStyle();
+            double sf = st.ScaleFactor > 0 ? st.ScaleFactor : 1;
+            d.TextHeight = st.TextHeight * sf;
+            d.ArrowSize = st.ArrowSize * sf;
+            d.Decimals = st.DecimalPlaces;
+        }
+        catch
+        {
+            d.TextHeight = doc.DimTextHeight;
+            d.ArrowSize = doc.DimArrowSize;
+            d.Decimals = doc.DimDecimals;
+        }
+        if (!string.IsNullOrEmpty(src.Text) && src.Text != "<>") d.TextOverride = src.Text;
+
+        switch (src)
+        {
+            case AE.DimensionLinear l:
+                d.P1 = V(l.FirstPoint); d.P2 = V(l.SecondPoint); d.Location = V(l.DefinitionPoint); d.Rotation = l.Rotation;
+                break;
+            case AE.DimensionAligned a:
+                d.P1 = V(a.FirstPoint); d.P2 = V(a.SecondPoint); d.Location = V(a.DefinitionPoint);
+                break;
+            case AE.DimensionRadius r:
+                d.Center = V(r.DefinitionPoint); d.P1 = V(r.AngleVertex); d.Location = V(r.TextMiddlePoint);
+                break;
+            case AE.DimensionDiameter dm:
+                d.P1 = V(dm.AngleVertex); d.Center = (V(dm.AngleVertex) + V(dm.DefinitionPoint)) / 2; d.Location = V(dm.TextMiddlePoint);
+                break;
+            case AE.DimensionAngular2Line ang:
+                {
+                    var a1 = V(ang.FirstPoint); var a2 = V(ang.SecondPoint);
+                    var b1 = V(ang.AngleVertex); var b2 = V(ang.DefinitionPoint);
+                    if (!GeoUtil.SegmentIntersect(a1, a2, b1, b2, out var vx, infinite: true)) { rep.Skip("Açı ölçüsü"); return; }
+                    d.Center = vx;
+                    d.P1 = Vec2.Distance(a1, vx) > Vec2.Distance(a2, vx) ? a1 : a2;
+                    d.P2 = Vec2.Distance(b1, vx) > Vec2.Distance(b2, vx) ? b1 : b2;
+                    d.Location = V(ang.DimensionArc);
+                    break;
+                }
+        }
+        doc.Add(d);
+        rep.Imported++;
+    }
 
     /// <summary>OCS (nesne koordinat sistemi) → WCS dönüşümü (AutoCAD "arbitrary axis" algoritması).</summary>
     private static Vec2 Ocs(XYZ p, XYZ n)
@@ -338,6 +452,18 @@ public static class CadFileIO
         var doc = new A.CadDocument();
         var groupMap = new Dictionary<string, List<AE.Entity>>();
 
+        // Ölçü stili
+        try
+        {
+            if (doc.DimensionStyles.TryGetValue(AT.DimensionStyle.DefaultName, out var ds))
+            {
+                ds.TextHeight = source.DimTextHeight;
+                ds.ArrowSize = source.DimArrowSize;
+                ds.DecimalPlaces = (short)source.DimDecimals;
+            }
+        }
+        catch { /* stil ayarlanamazsa varsayılan kalır */ }
+
         foreach (var li in source.Layers.Values)
         {
             if (!doc.Layers.TryGetValue(li.Name, out var layer))
@@ -352,16 +478,23 @@ public static class CadFileIO
         foreach (var e in only ?? source.Entities)
         {
             var list = ToAcad(e).ToList();
+            if (e is DimensionEntity && list.Count == 1 && list[0] is AE.Dimension adim)
+            {
+                // Gerçek ölçü nesnesi; blok üretilemezse parçalara ayrılmış olarak yaz
+                if (!TryAddDimension(doc, adim, e))
+                    list = ((DimensionEntity)e).Explode().SelectMany(ToAcad).ToList();
+                else
+                {
+                    AddGroupMember(groupMap, e, adim);
+                    continue;
+                }
+            }
             foreach (var ae in list)
             {
                 if (doc.Layers.TryGetValue(e.Layer, out var layer)) ae.Layer = layer;
                 ae.Color = e.Color is { } c ? ToAcadColor(c) : A.Color.ByLayer;
                 doc.Entities.Add(ae);
-                if (e.GroupId != null)
-                {
-                    if (!groupMap.TryGetValue(e.GroupId, out var gl)) groupMap[e.GroupId] = gl = new List<AE.Entity>();
-                    gl.Add(ae);
-                }
+                AddGroupMember(groupMap, e, ae);
             }
         }
 
@@ -372,6 +505,37 @@ public static class CadFileIO
         string ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
         if (ext == ".dwg") DwgWriter.Write(path, doc);
         else DxfWriter.Write(path, doc, false);
+    }
+
+    private static void AddGroupMember(Dictionary<string, List<AE.Entity>> map, Entity e, AE.Entity ae)
+    {
+        if (e.GroupId == null) return;
+        if (!map.TryGetValue(e.GroupId, out var gl)) map[e.GroupId] = gl = new List<AE.Entity>();
+        gl.Add(ae);
+    }
+
+    private static bool TryAddDimension(A.CadDocument doc, AE.Dimension adim, Entity e)
+    {
+        try
+        {
+            if (doc.Layers.TryGetValue(e.Layer, out var layer)) adim.Layer = layer;
+            adim.Color = e.Color is { } c ? ToAcadColor(c) : A.Color.ByLayer;
+            doc.Entities.Add(adim);
+            try
+            {
+                adim.UpdateBlock();
+                return true;
+            }
+            catch
+            {
+                doc.Entities.Remove(adim);
+                return false;
+            }
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static A.Color ToAcadColor(EntColor c)
@@ -408,6 +572,95 @@ public static class CadFileIO
                         lw.Vertices.Add(new AE.LwPolyline.Vertex(new XY(v.P.X, v.P.Y)) { Bulge = v.Bulge });
                     lw.IsClosed = pl.Closed;
                     yield return lw;
+                    break;
+                }
+            case DimensionEntity d:
+                {
+                    AE.Dimension? ad = null;
+                    var g = d.Build();
+                    var textPt = g.Texts.Count > 0 ? P(g.Texts[0].Anchor) : P(d.Location);
+                    switch (d.Kind)
+                    {
+                        case DimKind.Linear:
+                        case DimKind.Aligned:
+                            {
+                                var dir = d.Kind == DimKind.Linear ? Vec2.Polar(1, d.Rotation) : (d.P2 - d.P1).Normalized();
+                                var b = d.Location + dir * Vec2.Dot(d.P2 - d.Location, dir);
+                                if (d.Kind == DimKind.Linear)
+                                    ad = new AE.DimensionLinear { FirstPoint = P(d.P1), SecondPoint = P(d.P2), DefinitionPoint = P(b), Rotation = d.Rotation };
+                                else
+                                    ad = new AE.DimensionAligned(P(d.P1), P(d.P2)) { DefinitionPoint = P(b) };
+                                break;
+                            }
+                        case DimKind.Radius:
+                            {
+                                double r = Vec2.Distance(d.Center, d.P1);
+                                var dir = (d.Location - d.Center).Normalized();
+                                if (dir.LengthSquared < 1e-20) dir = Vec2.UnitX;
+                                ad = new AE.DimensionRadius { DefinitionPoint = P(d.Center), AngleVertex = P(d.Center + dir * r) };
+                                break;
+                            }
+                        case DimKind.Diameter:
+                            {
+                                double r = Vec2.Distance(d.Center, d.P1);
+                                var dir = (d.Location - d.Center).Normalized();
+                                if (dir.LengthSquared < 1e-20) dir = Vec2.UnitX;
+                                ad = new AE.DimensionDiameter { DefinitionPoint = P(d.Center - dir * r), AngleVertex = P(d.Center + dir * r) };
+                                break;
+                            }
+                        case DimKind.Angular:
+                            ad = new AE.DimensionAngular2Line
+                            {
+                                FirstPoint = P(d.Center),
+                                SecondPoint = P(d.P1),
+                                AngleVertex = P(d.Center),
+                                DefinitionPoint = P(d.P2),
+                                DimensionArc = P(d.Location)
+                            };
+                            break;
+                    }
+                    if (ad != null)
+                    {
+                        ad.TextMiddlePoint = textPt;
+                        if (!string.IsNullOrEmpty(d.TextOverride)) ad.Text = d.TextOverride;
+                        yield return ad;
+                    }
+                    break;
+                }
+            case HatchEntity h:
+                {
+                    var hatch = new AE.Hatch();
+                    if (h.IsSolid)
+                    {
+                        hatch.IsSolid = true;
+                        hatch.PatternType = AE.HatchPatternType.SolidFill;
+                        hatch.Pattern = AE.HatchPattern.Solid;
+                    }
+                    else
+                    {
+                        hatch.IsSolid = false;
+                        hatch.PatternType = AE.HatchPatternType.Custom;
+                        // Ölçek/açı önce, desen çizgileri sonra (ayarlayıcılar deseni yeniden dönüştürür)
+                        hatch.PatternScale = h.Scale;
+                        hatch.PatternAngle = h.Angle;
+                        var pat = new AE.HatchPattern(h.Pattern.ToUpperInvariant());
+                        foreach (var (ang, sp) in h.Families())
+                        {
+                            var off = Vec2.Polar(sp, ang + Math.PI / 2);
+                            pat.Lines.Add(new AE.HatchPattern.Line { Angle = ang, BasePoint = new XY(0, 0), Offset = new XY(off.X, off.Y) });
+                        }
+                        hatch.Pattern = pat;
+                    }
+                    bool first = true;
+                    foreach (var loop in h.Loops)
+                    {
+                        var path = new AE.Hatch.BoundaryPath();
+                        path.Edges.Add(new AE.Hatch.BoundaryPath.Polyline(loop.Select(v => new XYZ(v.P.X, v.P.Y, v.Bulge)), true));
+                        path.Flags = first ? AE.BoundaryPathFlags.External : AE.BoundaryPathFlags.Default;
+                        hatch.Paths.Add(path);
+                        first = false;
+                    }
+                    yield return hatch;
                     break;
                 }
             case Model.TextEntity t:

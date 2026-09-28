@@ -9,12 +9,16 @@
     <RootNamespace>MyDesktopApp</RootNamespace>
     <AssemblyName>ProfilCAD</AssemblyName>
     <Product>Profil CAD</Product>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
+    <Company>Profil CAD</Company>
+    <Copyright>Harun Şimşek</Copyright>
   </PropertyGroup>
 
   <ItemGroup>
     <!-- DWG / DXF okuma-yazma (MIT lisanslı) -->
     <PackageReference Include="ACadSharp" Version="3.*" />
+    <!-- PDF kesit raporu (MIT lisanslı) -->
+    <PackageReference Include="PDFsharp-WPF" Version="6.*" />
   </ItemGroup>
 
 </Project>

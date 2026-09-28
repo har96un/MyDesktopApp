@@ -70,6 +70,8 @@ public sealed partial class CadEditor
     public event Action? SceneChanged;
     public event Action? StateChanged;
     public event Action? RequestFileNew;
+    /// <summary>Komut yokken sağ tık (bağlam menüsü için).</summary>
+    public event Action? IdleRightClick;
 
     private PointRequest? _request;
     private TaskCompletionSource<UserInput>? _pending;
@@ -86,6 +88,7 @@ public sealed partial class CadEditor
         Doc.Changed += (_, _) => SceneChanged?.Invoke();
         Doc.SelectionChanged += (_, _) => { SceneChanged?.Invoke(); StateChanged?.Invoke(); };
         RegisterCommands();
+        _builtinAliases = new Dictionary<string, string>(_aliases);
     }
 
     public void Log(string msg) => Message?.Invoke(msg);
@@ -142,6 +145,23 @@ public sealed partial class CadEditor
 
         var info = _commands[cmdName];
         if (info.Repeatable) _lastCommand = cmdName;
+        await RunInfo(info);
+    }
+
+    /// <summary>Kayıtlı olmayan (menüden/pencereden gelen) bir işlemi komut gibi çalıştırır.</summary>
+    public async Task RunAdHoc(string name, Func<Task> handler)
+    {
+        var prev = _running;
+        if (prev != null)
+        {
+            CancelCommand();
+            try { await prev; } catch { /* yoksay */ }
+        }
+        await RunInfo(new CommandInfo(name, Array.Empty<string>(), name, handler, false));
+    }
+
+    private async Task RunInfo(CommandInfo info)
+    {
         Log($"Komut: {info.Name}");
         _runningName = info.Name;
         var task = ExecuteAsync(info);
@@ -521,8 +541,11 @@ public sealed partial class CadEditor
             Complete(new UserInput(InputType.Enter));
             return;
         }
-        if (Mode == InputMode.Idle && !string.IsNullOrEmpty(_lastCommand))
-            _ = RunCommand(_lastCommand);
+        if (Mode == InputMode.Idle && _running == null)
+        {
+            if (IdleRightClick != null) IdleRightClick.Invoke();
+            else if (!string.IsNullOrEmpty(_lastCommand)) _ = RunCommand(_lastCommand);
+        }
     }
 
     public Entity? HitTest(Vec2 world)

@@ -28,7 +28,12 @@ public partial class MainWindow : Window
         _editor.Message += AppendHistory;
         _editor.StateChanged += UpdateState;
         _editor.RequestFileNew += () => New_Click(this, new RoutedEventArgs());
-        _doc.Changed += (_, _) => { UpdateTitle(); RebuildLayerPanel(); };
+        _doc.Changed += (_, _) =>
+        {
+            UpdateTitle();
+            RebuildLayerPanel();
+            if (!PropsPanel.IsKeyboardFocusWithin) BuildPropertiesPanel();
+        };
         _doc.SelectionChanged += (_, _) => UpdatePanel();
         DrawArea.CursorMoved += p => CoordText.Text = $"{Vec2.Format(p.X),12}, {Vec2.Format(p.Y),12}";
 
@@ -36,6 +41,8 @@ public partial class MainWindow : Window
         GridToggle.IsChecked = _editor.GridEnabled;
         OrthoToggle.IsChecked = _editor.OrthoEnabled;
         TrackToggle.IsChecked = _editor.TrackingEnabled;
+
+        InitFeatures();
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -45,6 +52,7 @@ public partial class MainWindow : Window
         UpdatePanel();
         RebuildLayerPanel();
         InputBox.Focus();
+        OnLoadedFeatures();
     }
 
     // ================================================================ Komut satırı
@@ -94,6 +102,12 @@ public partial class MainWindow : Window
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         bool ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
+
+        // Özellikler panelinde (veya başka bir metin kutusunda) düzenleme yapılıyorsa tuşlara karışma
+        if (Keyboard.FocusedElement is TextBox ftb && ftb != InputBox) return;
+
+        // Kullanıcı tanımlı klavye kısayolları
+        if (TryCustomShortcut(e)) { e.Handled = true; return; }
 
         switch (e.Key)
         {
@@ -146,6 +160,8 @@ public partial class MainWindow : Window
                 case Key.O: Open_Click(this, e); e.Handled = true; return;
                 case Key.S: Save_Click(this, e); e.Handled = true; return;
                 case Key.N: New_Click(this, e); e.Handled = true; return;
+                case Key.L: Library_Click(this, e); e.Handled = true; return;
+                case Key.P: Report_Click(this, e); e.Handled = true; return;
             }
         }
 
@@ -158,6 +174,7 @@ public partial class MainWindow : Window
 
     private void UpdatePanel()
     {
+        BuildPropertiesPanel();
         var sel = _doc.Selection.ToList();
         if (sel.Count == 0)
         {
@@ -403,6 +420,7 @@ public partial class MainWindow : Window
         if (!ConfirmDiscard()) return;
         _editor.CancelCommand();
         _doc.Clear();
+        DeleteAutosave();
         LayerPanel.Tag = null;
         RebuildLayerPanel();
         DrawArea.ZoomExtents();
@@ -416,18 +434,25 @@ public partial class MainWindow : Window
         if (!ConfirmDiscard()) return;
         var dlg = new OpenFileDialog { Filter = OpenFilter, Title = "DWG / DXF Aç" };
         if (dlg.ShowDialog(this) != true) return;
+        await OpenFile(dlg.FileName);
+    }
+
+    /// <summary>Dosyayı açar (kaydedilmemiş değişiklik onayı çağırandadır).</summary>
+    private async Task OpenFile(string path, bool recovered = false)
+    {
         _editor.CancelCommand();
         var tmp = new CadDocument();
         try
         {
             Mouse.OverrideCursor = Cursors.Wait;
-            AppendHistory($"Açılıyor: {dlg.FileName}");
-            var report = await Task.Run(() => CadFileIO.Load(dlg.FileName, tmp));
+            AppendHistory($"Açılıyor: {path}");
+            var report = await Task.Run(() => CadFileIO.Load(path, tmp));
             _doc.Clear();
             _doc.Merge(tmp);
-            _doc.FilePath = dlg.FileName;
-            _doc.IsModified = false;
+            _doc.FilePath = recovered ? null : path;
+            _doc.IsModified = recovered;
             AppendHistory(report.ToString());
+            if (!recovered) _settings.AddRecent(path);
         }
         catch (Exception ex)
         {
@@ -450,13 +475,18 @@ public partial class MainWindow : Window
     {
         var dlg = new OpenFileDialog { Filter = OpenFilter, Title = "İçe Aktar", Multiselect = true };
         if (dlg.ShowDialog(this) != true) return;
+        await ImportFiles(dlg.FileNames);
+    }
+
+    private async Task ImportFiles(IEnumerable<string> fileNames)
+    {
         _editor.CancelCommand();
         _doc.SaveUndo();
         try
         {
             Mouse.OverrideCursor = Cursors.Wait;
             var added = new List<Entity>();
-            foreach (var f in dlg.FileNames)
+            foreach (var f in fileNames)
             {
                 var tmp = new CadDocument();
                 var report = await Task.Run(() => CadFileIO.Load(f, tmp));
@@ -503,6 +533,8 @@ public partial class MainWindow : Window
             CadFileIO.Save(path, _doc);
             _doc.FilePath = path;
             _doc.IsModified = false;
+            _settings.AddRecent(path);
+            DeleteAutosave();
             AppendHistory($"Kaydedildi: {path}");
             UpdateTitle();
             return true;
@@ -541,6 +573,9 @@ public partial class MainWindow : Window
 
     private void Window_Closing(object? sender, CancelEventArgs e)
     {
-        if (!ConfirmDiscard()) e.Cancel = true;
+        if (!ConfirmDiscard()) { e.Cancel = true; return; }
+        _autosaveTimer.Stop();
+        DeleteAutosave();
+        _settings.Save();
     }
 }

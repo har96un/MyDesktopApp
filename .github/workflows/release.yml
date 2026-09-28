@@ -1,0 +1,74 @@
+name: Kurulum (setup.exe)
+
+# main dalına her gönderimde kurulum dosyası üretilir ve "latest" sürümüne yüklenir.
+# Elle çalıştırmak için: Actions → "Kurulum (setup.exe)" → Run workflow
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'installer/**'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: true
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Sürüm numarası
+        id: ver
+        shell: pwsh
+        run: |
+          $v = "0.2.${{ github.run_number }}"
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Yayınla (tek dosya, self-contained, win-x64)
+        run: >
+          dotnet publish src/MyDesktopApp/MyDesktopApp.csproj -c Release -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -p:DebugType=none
+          -p:Version=${{ steps.ver.outputs.version }}
+          -o publish
+
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          & $iscc "/DAppVersion=${{ steps.ver.outputs.version }}" "/DSourceDir=..\publish" installer\ProfilCAD.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem output
+
+      - name: Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProfilCAD-Setup-${{ steps.ver.outputs.version }}
+          path: output/ProfilCAD-Setup.exe
+
+      - name: GitHub Release (latest)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          gh release delete latest --yes --cleanup-tag 2>$null
+          $notes = "Profil CAD $v`n`nOtomatik derleme: ${{ github.sha }}`n`nKurulum: ProfilCAD-Setup.exe dosyasını indirip çalıştırın."
+          gh release create latest output/ProfilCAD-Setup.exe --title "Profil CAD $v" --notes "$notes" --target ${{ github.sha }}

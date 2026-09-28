@@ -27,6 +27,14 @@ public sealed class CadDocument
     public bool IsModified { get; set; }
     public string CurrentLayer { get; set; } = "0";
 
+    // Ölçü / tarama varsayılanları (Ayarlar'dan gelir)
+    public double DimTextHeight { get; set; } = 2.5;
+    public double DimArrowSize { get; set; } = 2.5;
+    public int DimDecimals { get; set; } = 2;
+    public string HatchPattern { get; set; } = "ANSI31";
+    public double HatchScale { get; set; } = 1;
+    public double HatchAngle { get; set; }
+
     /// <summary>Geometri değiştiğinde tetiklenir.</summary>
     public event EventHandler? Changed;
     /// <summary>Seçim değiştiğinde tetiklenir.</summary>

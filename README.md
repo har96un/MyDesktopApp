@@ -25,6 +25,19 @@ ve tekrar DWG/DXF olarak kaydetmektir.
 - **Katmanlar:** Yeni katman, silme (nesneleri silerek veya "0"a taşıyarak), yeniden adlandırma, renk, görünürlük,
   geçerli katman, seçili nesneleri katmana taşıma
 - **Gruplar:** Grupla (G) / Grubu çöz (UG). Gruba tıklamak tümünü seçer, Ctrl+tık tek nesne. DWG/DXF'e grup olarak yazılır.
+- **Buda / Uzat / Yuvarla / Pah:** TR, EX, F, CHA. Yuvarla ve Pah iki çizgide veya polyline köşelerinde (P: tüm köşeler) çalışır.
+- **Ölçülendirme:** Doğrusal (DLI), Paralel (DAL), Yarıçap (DRA), Çap (DDI), Açı (DAN). DWG/DXF'e gerçek ölçü nesnesi olarak yazılır.
+- **Tarama (H):** Kapalı alanın içine tıklayın; SOLID, ANSI31, ANSI37, LINE, NET desenleri. Delikler otomatik bulunur.
+- **Özellikler paneli:** Seçili nesnenin katmanı, rengi ve geometrisi (koordinat, uzunluk, açı, yarıçap, metin, ölçü/tarama ayarları) doğrudan düzenlenir.
+- **Profil kütüphanesi (Ctrl+L):** Kesitleri küçük resimlerle listeler; arama, çift tıkla ekleme ya da çizime sürükle-bırak.
+  Seçili kesit ağırlık merkezi 0,0 olacak şekilde kütüphaneye kaydedilir.
+- **Toplu işlem:** Çok sayıda DWG/DXF'i asal eksene hizalar, döndürür, aynalar, ölçekler, 0,0'a taşır, DXF/DWG olarak kaydeder;
+  isteğe bağlı her dosya için PDF raporu ve tüm kesitlerin özellik tablosu (CSV).
+- **PDF kesit raporu (Ctrl+P):** A4, firma logosu ve adı, ölçekli çizim, ağırlık merkezi ve asal eksenler, genişlik/yükseklik ölçüleri, özellik tablosu.
+- **Son açılanlar, otomatik kayıt ve kurtarma:** Beklenmedik kapanmada bir sonraki açılışta çizim kurtarılır.
+- **Sağ tık menüsü:** Komut yokken sağ tık bağlam menüsü açar; komut sırasında Enter görevi görür.
+- **Ayarlar:** Firma/logo, kütüphane klasörü, otomatik kayıt aralığı, ölçü ve tarama varsayılanları,
+  komutlara ek kısa adlar ve klavye kısayolları (ör. Ctrl+Shift+T → TRIM).
 
 ## Koordinat girişi
 
@@ -35,7 +48,13 @@ ve tekrar DWG/DXF olarak kaydetmektir.
 | `@uzunluk<açı` | Kutupsal (açı derece) |
 | `25` | İmleç yönünde 25 birim |
 
-## Çalıştırma
+## Kurulum
+
+Her `main` gönderiminde GitHub Actions **ProfilCAD-Setup.exe** kurulum dosyasını üretir ve
+**Releases → latest** altına yükler (ayrıca Actions sayfasında artifact olarak da bulunur).
+Kurulum .NET gerektirmez (self-contained), yönetici yetkisi istemeden kullanıcı klasörüne kurulabilir.
+
+## Çalıştırma (geliştirme)
 
 ```bash
 dotnet run --project src/MyDesktopApp

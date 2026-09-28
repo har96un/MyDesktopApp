@@ -65,6 +65,8 @@ public sealed partial class CadEditor
         Reg("REDO", "Yinele", () => { DoRedo(); return Task.CompletedTask; }, "YINELE");
         Reg("SELECTALL", "Tümünü seç", () => { Doc.SetSelection(Doc.VisibleEntities); return Task.CompletedTask; }, "TUMUNUSEC");
         Reg("HELP", "Komut listesi", CmdHelp, "YARDIM", "?");
+        RegisterDimCommands();
+        RegisterModifyCommands();
     }
 
     // ================================================================ Yardımcılar
@@ -498,9 +500,15 @@ public sealed partial class CadEditor
     {
         var sel = await GetSelection();
         var polys = sel.OfType<PolylineEntity>().ToList();
-        if (polys.Count == 0) { Log("Seçimde patlatılabilecek polyline yok."); return; }
+        var dims = sel.OfType<DimensionEntity>().ToList();
+        if (polys.Count == 0 && dims.Count == 0) { Log("Seçimde patlatılabilecek polyline veya ölçü yok."); return; }
         Doc.SaveUndo();
         int made = 0;
+        foreach (var dm in dims)
+        {
+            foreach (var pe in dm.Explode()) { Doc.Add(pe); made++; }
+        }
+        Doc.Remove(dims);
         foreach (var pl in polys)
         {
             foreach (var pr in pl.Primitives())
@@ -521,7 +529,7 @@ public sealed partial class CadEditor
         Doc.Remove(polys);
         NotifyDocumentChanged();
         Doc.RaiseSelectionChanged();
-        Log($"  {polys.Count} polyline → {made} parça.");
+        Log($"  {polys.Count + dims.Count} nesne → {made} parça.");
     }
 
     private double _lastOffset = 1;
@@ -972,6 +980,10 @@ public sealed partial class CadEditor
         Log("  bağlı çizginin uzantısına veya dikine gelince hizaya oturur; iki noktanın izlerinin kesişimine de yakalanır. Temel noktadan");
         Log("  alınan çizgiye paralel/dik yönler de izlenir. Aynı noktada tekrar bekletmek izi kaldırır.");
         Log("Gruplar: G ile grupla, UG ile çöz. Gruptaki bir nesneye tıklamak tüm grubu seçer; Ctrl+tık tek nesneyi seçer.");
+        Log("Buda (TR) / Uzat (EX): önceden seçim yapılırsa kenar olarak seçili nesneler, yoksa tüm nesneler kullanılır; parçaya tıklayın.");
+        Log("Yuvarla (F) / Pah (CHA): iki çizgi ya da aynı polyline'ın komşu iki parçası. Y/M: yarıçap/mesafe, P: polyline'ın tüm köşeleri.");
+        Log("Ölçü: DLI (doğrusal), DAL (paralel), DRA (yarıçap), DDI (çap), DAN (açı). Tarama: H, kapalı alanın içine tıklayın.");
+        Log("Sağ tık (komut yokken): bağlam menüsü. Ctrl+L: profil kütüphanesi, Ctrl+P: PDF raporu. Kısa ad/kısayol: Araçlar → Ayarlar.");
         return Task.CompletedTask;
     }
 }

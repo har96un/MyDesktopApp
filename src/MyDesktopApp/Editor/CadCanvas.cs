@@ -295,6 +295,16 @@ public sealed class CadCanvas : FrameworkElement
             DrawText(dc, t, brush);
             return;
         }
+        if (e is DimensionEntity dim)
+        {
+            DrawDimension(dc, dim, pen, brush);
+            return;
+        }
+        if (e is HatchEntity hatch)
+        {
+            DrawHatch(dc, hatch, pen, brush, highlight: ReferenceEquals(pen, SelPen) || ReferenceEquals(pen, PreviewPen));
+            return;
+        }
         if (e is CircleEntity c)
         {
             double r = c.Radius * _scale;
@@ -337,6 +347,99 @@ public sealed class CadCanvas : FrameworkElement
                             }
                             break;
                         }
+                }
+            }
+        }
+        geo.Freeze();
+        dc.DrawGeometry(null, pen, geo);
+    }
+
+    private void DrawDimension(DrawingContext dc, DimensionEntity dim, Pen pen, Brush brush)
+    {
+        var g = dim.Build();
+        foreach (var (a, b) in g.Lines) dc.DrawLine(pen, ToScreen(a), ToScreen(b));
+        foreach (var arc in g.Arcs) DrawPrims(dc, new Prim[] { arc }, pen);
+        foreach (var tri in g.Arrows)
+        {
+            var geo = new StreamGeometry();
+            using (var ctx = geo.Open())
+            {
+                ctx.BeginFigure(ToScreen(tri[0]), true, true);
+                ctx.LineTo(ToScreen(tri[1]), true, false);
+                ctx.LineTo(ToScreen(tri[2]), true, false);
+            }
+            geo.Freeze();
+            dc.DrawGeometry(brush, null, geo);
+        }
+        foreach (var (anchor, rot, h, text) in g.Texts)
+            DrawCenteredText(dc, text, anchor, rot, h, brush);
+    }
+
+    /// <summary>Alt-orta noktası verilen yazıyı çizer.</summary>
+    private void DrawCenteredText(DrawingContext dc, string text, Vec2 anchor, double rotation, double height, Brush brush)
+    {
+        double em = height * _scale / 0.7;
+        if (em < 2 || em > 2000) return;
+        var ft = new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, _typeface, em, brush,
+            VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        var sp = ToScreen(anchor);
+        dc.PushTransform(new RotateTransform(-GeoUtil.RadToDeg(rotation), sp.X, sp.Y));
+        dc.DrawText(ft, new Point(sp.X - ft.Width / 2, sp.Y - ft.Baseline));
+        dc.Pop();
+    }
+
+    private void DrawHatch(DrawingContext dc, HatchEntity h, Pen pen, Brush brush, bool highlight)
+    {
+        if (h.IsSolid)
+        {
+            var geo = new StreamGeometry { FillRule = FillRule.EvenOdd };
+            using (var ctx = geo.Open())
+            {
+                foreach (var poly in h.LoopPolygons())
+                {
+                    ctx.BeginFigure(ToScreen(poly[0]), true, true);
+                    for (int i = 1; i < poly.Count; i++) ctx.LineTo(ToScreen(poly[i]), true, false);
+                }
+            }
+            geo.Freeze();
+            dc.DrawGeometry(highlight ? null : brush, highlight ? pen : null, geo);
+            return;
+        }
+        // Çok küçük ölçekte desen yerine yalnızca sınır
+        double spacingPx = HatchEntity.BaseSpacing * h.Scale * _scale;
+        if (spacingPx >= 2)
+        {
+            foreach (var (a, b) in h.PatternSegments())
+                dc.DrawLine(pen, ToScreen(a), ToScreen(b));
+        }
+        if (highlight || spacingPx < 2)
+            foreach (var loop in h.Loops) DrawPrims(dc, HatchEntity.LoopPrims(loop), pen);
+    }
+
+    private void DrawPrims(DrawingContext dc, IEnumerable<Prim> prims, Pen pen)
+    {
+        var geo = new StreamGeometry();
+        using (var ctx = geo.Open())
+        {
+            Point? cur = null;
+            foreach (var pr in prims)
+            {
+                var s = ToScreen(pr.StartPoint);
+                if (cur == null || (cur.Value - s).LengthSquared > 0.25)
+                    ctx.BeginFigure(s, false, false);
+                if (pr is LinePrim l)
+                {
+                    cur = ToScreen(l.B);
+                    ctx.LineTo(cur.Value, true, false);
+                }
+                else if (pr is ArcPrim a)
+                {
+                    var ep = ToScreen(a.EndPoint);
+                    double sweep = GeoUtil.Sweep(a.Start, a.End);
+                    double r = a.Radius * _scale;
+                    var dir = a.Reversed ? SweepDirection.Counterclockwise : SweepDirection.Clockwise;
+                    ctx.ArcTo(ep, new Size(r, r), 0, sweep > Math.PI, dir, true, false);
+                    cur = ep;
                 }
             }
         }

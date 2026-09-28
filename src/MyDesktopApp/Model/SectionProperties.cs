@@ -37,7 +37,7 @@ public static class SectionProperties
 
         foreach (var e in entities)
         {
-            if (e is TextEntity) continue;
+            if (e is TextEntity or DimensionEntity or HatchEntity) continue;
             var pts = e.ToPoints();
             if (pts.Count < 2) continue;
             if (e.IsClosed)
