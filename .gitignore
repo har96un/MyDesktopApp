@@ -1,0 +1,43 @@
+# Build çıktıları
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Ll]og/
+publish/
+artifacts/
+
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+*.user
+*.suo
+*.userprefs
+*.rsuser
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+project.lock.json
+project.fragment.lock.json
+
+# Test sonuçları
+[Tt]est[Rr]esult*/
+*.trx
+coverage*/
+
+# İşletim sistemi
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Gizli bilgiler
+*.pfx
+appsettings.*.local.json
+.env
