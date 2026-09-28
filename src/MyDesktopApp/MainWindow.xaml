@@ -1,0 +1,11 @@
+<Window x:Class="MyDesktopApp.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="MyDesktopApp" Height="350" Width="525"
+        WindowStartupLocation="CenterScreen">
+    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+        <TextBlock x:Name="GreetingText" Text="Merhaba!" FontSize="24" Margin="0,0,0,16"
+                   HorizontalAlignment="Center"/>
+        <Button Content="Tıkla" Width="120" Padding="8" Click="OnButtonClick"/>
+    </StackPanel>
+</Window>
