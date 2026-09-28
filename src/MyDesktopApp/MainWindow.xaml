@@ -1,11 +1,156 @@
 <Window x:Class="MyDesktopApp.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="MyDesktopApp" Height="350" Width="525"
-        WindowStartupLocation="CenterScreen">
-    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-        <TextBlock x:Name="GreetingText" Text="Merhaba!" FontSize="24" Margin="0,0,0,16"
-                   HorizontalAlignment="Center"/>
-        <Button Content="Tıkla" Width="120" Padding="8" Click="OnButtonClick"/>
-    </StackPanel>
+        xmlns:ed="clr-namespace:MyDesktopApp.Editor"
+        Title="Profil CAD" Height="820" Width="1320"
+        WindowStartupLocation="CenterScreen"
+        PreviewKeyDown="Window_PreviewKeyDown"
+        Closing="Window_Closing"
+        Loaded="Window_Loaded">
+    <Window.Resources>
+        <Style x:Key="ToolBtn" TargetType="Button">
+            <Setter Property="Padding" Value="8,3"/>
+            <Setter Property="Margin" Value="1,0"/>
+            <Setter Property="Focusable" Value="False"/>
+        </Style>
+        <Style x:Key="PanelHeader" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,10,0,4"/>
+            <Setter Property="Foreground" Value="#FF1F4E79"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <!-- Menü -->
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="_Dosya">
+                <MenuItem Header="_Yeni" InputGestureText="Ctrl+N" Click="New_Click"/>
+                <MenuItem Header="_Aç (DWG/DXF)..." InputGestureText="Ctrl+O" Click="Open_Click"/>
+                <MenuItem Header="_İçe Aktar (mevcut çizime ekle)..." Click="Import_Click"/>
+                <Separator/>
+                <MenuItem Header="_Kaydet" InputGestureText="Ctrl+S" Click="Save_Click"/>
+                <MenuItem Header="_Farklı Kaydet..." Click="SaveAs_Click"/>
+                <MenuItem Header="Seçileni _Dışa Aktar..." Click="ExportSel_Click"/>
+                <Separator/>
+                <MenuItem Header="Çı_kış" Click="Exit_Click"/>
+            </MenuItem>
+            <MenuItem Header="_Düzen">
+                <MenuItem Header="_Geri Al" InputGestureText="Ctrl+Z" Tag="UNDO" Click="Cmd_Click"/>
+                <MenuItem Header="_Yinele" InputGestureText="Ctrl+Y" Tag="REDO" Click="Cmd_Click"/>
+                <Separator/>
+                <MenuItem Header="_Tümünü Seç" InputGestureText="Ctrl+A" Tag="SELECTALL" Click="Cmd_Click"/>
+                <MenuItem Header="_Sil" InputGestureText="Del" Tag="ERASE" Click="Cmd_Click"/>
+            </MenuItem>
+            <MenuItem Header="_Görünüm">
+                <MenuItem Header="_Tümünü Göster" Tag="ZOOMEXTENTS" Click="Cmd_Click"/>
+            </MenuItem>
+            <MenuItem Header="_Yardım">
+                <MenuItem Header="_Komut Listesi" Tag="HELP" Click="Cmd_Click"/>
+            </MenuItem>
+        </Menu>
+
+        <!-- Araç çubukları -->
+        <ToolBarTray DockPanel.Dock="Top">
+            <ToolBar Header="Çizim ">
+                <Button Style="{StaticResource ToolBtn}" Content="Çizgi" Tag="LINE" Click="Cmd_Click" ToolTip="Çizgi (L)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Polyline" Tag="PLINE" Click="Cmd_Click" ToolTip="Polyline (PL)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Dikdörtgen" Tag="RECTANG" Click="Cmd_Click" ToolTip="Dikdörtgen (REC)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Daire" Tag="CIRCLE" Click="Cmd_Click" ToolTip="Daire (C)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Yay" Tag="ARC" Click="Cmd_Click" ToolTip="3 noktadan yay (A)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Yazı" Tag="TEXT" Click="Cmd_Click" ToolTip="Yazı (DT)"/>
+            </ToolBar>
+            <ToolBar Header="Değiştir ">
+                <Button Style="{StaticResource ToolBtn}" Content="Taşı" Tag="MOVE" Click="Cmd_Click" ToolTip="Taşı (M)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Kopyala" Tag="COPY" Click="Cmd_Click" ToolTip="Kopyala (CO)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Döndür" Tag="ROTATE" Click="Cmd_Click" ToolTip="Döndür (RO)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Aynala" Tag="MIRROR" Click="Cmd_Click" ToolTip="Aynala (MI)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Ölçekle" Tag="SCALE" Click="Cmd_Click" ToolTip="Ölçekle (SC)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Ötele" Tag="OFFSET" Click="Cmd_Click" ToolTip="Paralel kopya / Offset (O)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Birleştir" Tag="JOIN" Click="Cmd_Click" ToolTip="Uç uca nesneleri polyline yap (J)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Patlat" Tag="EXPLODE" Click="Cmd_Click" ToolTip="Polyline'ı parçala (X)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Sil" Tag="ERASE" Click="Cmd_Click" ToolTip="Sil (E / Del)"/>
+                <Separator/>
+                <Button Style="{StaticResource ToolBtn}" Content="Ölç" Tag="DIST" Click="Cmd_Click" ToolTip="Mesafe (DI)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Tümünü Göster" Tag="ZOOMEXTENTS" Click="Cmd_Click" ToolTip="Zoom Extents (ZE) / orta tuşa çift tık"/>
+            </ToolBar>
+            <ToolBar Header="Profil → 0,0 " Band="1">
+                <Button Style="{StaticResource ToolBtn}" Content="Ağırlık Merkezi → 0,0" Tag="ORIGINCENTROID" Click="Cmd_Click" ToolTip="Kesitin ağırlık merkezini orijine taşır (OC)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Sol Alt → 0,0" Tag="ORIGINLOWERLEFT" Click="Cmd_Click" ToolTip="Sınır kutusunun sol alt köşesini orijine taşır (OLL)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Kutu Merkezi → 0,0" Tag="ORIGINCENTER" Click="Cmd_Click" ToolTip="Sınır kutusu merkezini orijine taşır (OBC)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Nokta → 0,0" Tag="ORIGIN" Click="Cmd_Click" ToolTip="Seçtiğiniz noktayı orijine taşır (OR)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Hizala (2 nokta)" Tag="ALIGN" Click="Cmd_Click" ToolTip="1. nokta 0,0'a, 2. nokta +X yönüne (AL)"/>
+                <Separator/>
+                <Button Style="{StaticResource ToolBtn}" Content="⟲ +90°" Tag="ROT90" Click="Cmd_Click" ToolTip="0,0 etrafında +90° (R90)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="⟳ −90°" Tag="ROTM90" Click="Cmd_Click" ToolTip="0,0 etrafında −90° (R-90)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="180°" Tag="ROT180" Click="Cmd_Click" ToolTip="0,0 etrafında 180° (R180)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Aynala X ekseni" Tag="MIRRORX" Click="Cmd_Click" ToolTip="y → −y (MX)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Aynala Y ekseni" Tag="MIRRORY" Click="Cmd_Click" ToolTip="x → −x (MY)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Asal Eksen" Tag="PRINCIPAL" Click="Cmd_Click" ToolTip="Kesiti asal atalet eksenlerine hizalar (ASAL)"/>
+                <Button Style="{StaticResource ToolBtn}" Content="Kesit Özellikleri" Tag="MASSPROP" Click="Cmd_Click" ToolTip="Alan, ağırlık merkezi, atalet (MP)"/>
+            </ToolBar>
+        </ToolBarTray>
+
+        <!-- Durum çubuğu -->
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock x:Name="CoordText" FontFamily="Consolas" MinWidth="240" Text="0.0000, 0.0000"/>
+            </StatusBarItem>
+            <Separator/>
+            <StatusBarItem>
+                <ToggleButton x:Name="SnapToggle" Content="YAKALAMA (F3)" Focusable="False" Padding="6,1" Click="Toggle_Click"/>
+            </StatusBarItem>
+            <StatusBarItem>
+                <ToggleButton x:Name="GridToggle" Content="IZGARA (F7)" Focusable="False" Padding="6,1" Click="Toggle_Click"/>
+            </StatusBarItem>
+            <StatusBarItem>
+                <ToggleButton x:Name="OrthoToggle" Content="ORTO (F8)" Focusable="False" Padding="6,1" Click="Toggle_Click"/>
+            </StatusBarItem>
+            <Separator/>
+            <StatusBarItem>
+                <TextBlock x:Name="StatusText" Foreground="#FF555555"/>
+            </StatusBarItem>
+        </StatusBar>
+
+        <!-- Komut satırı -->
+        <Border DockPanel.Dock="Bottom" BorderBrush="#FFBBBBBB" BorderThickness="0,1,0,0" Background="#FF2B2F36">
+            <DockPanel>
+                <TextBox x:Name="HistoryBox" DockPanel.Dock="Top" Height="96" IsReadOnly="True" Focusable="False"
+                         FontFamily="Consolas" FontSize="12" Background="#FF2B2F36" Foreground="#FFD0D4DA" BorderThickness="0"
+                         VerticalScrollBarVisibility="Auto" TextWrapping="NoWrap" HorizontalScrollBarVisibility="Auto"/>
+                <DockPanel Margin="4,2,4,4">
+                    <TextBlock x:Name="PromptText" DockPanel.Dock="Left" Text="Komut:" Foreground="#FFFFD24D" FontFamily="Consolas"
+                               FontSize="13" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBox x:Name="InputBox" FontFamily="Consolas" FontSize="13" Background="#FF1E232B" Foreground="White"
+                             CaretBrush="White" BorderBrush="#FF555555" Padding="2"/>
+                </DockPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- Sağ panel -->
+        <Border DockPanel.Dock="Right" Width="290" BorderBrush="#FFBBBBBB" BorderThickness="1,0,0,0" Background="#FFF7F8FA">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="10">
+                    <TextBlock Style="{StaticResource PanelHeader}" Text="Seçim" Margin="0,0,0,4"/>
+                    <TextBlock x:Name="SelectionInfo" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"/>
+
+                    <TextBlock Style="{StaticResource PanelHeader}" Text="Kesit Özellikleri"/>
+                    <TextBlock x:Name="SectionInfo" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"/>
+
+                    <TextBlock Style="{StaticResource PanelHeader}" Text="Katmanlar (görünürlük)"/>
+                    <StackPanel x:Name="LayerPanel"/>
+
+                    <TextBlock Style="{StaticResource PanelHeader}" Text="İpuçları"/>
+                    <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#FF555555">
+                        Komutları yazıp Enter/Boşluk ile çalıştırın (L, PL, C, M, RO, MI, SC, O...).<LineBreak/>
+                        Koordinat: <Run FontFamily="Consolas">x,y</Run> · <Run FontFamily="Consolas">@dx,dy</Run> · <Run FontFamily="Consolas">@uzunluk&lt;açı</Run><LineBreak/>
+                        Tekerlek: yakınlaştır · Orta tuş: kaydır · Sağ tık: Enter<LineBreak/>
+                        Soldan sağa pencere: tam içindekiler; sağdan sola: dokunanlar. Shift+tık: seçimden çıkar.
+                    </TextBlock>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+
+        <!-- Çizim alanı -->
+        <ed:CadCanvas x:Name="DrawArea"/>
+    </DockPanel>
 </Window>
