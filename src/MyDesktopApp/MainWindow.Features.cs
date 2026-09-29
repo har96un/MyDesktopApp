@@ -160,7 +160,7 @@ public partial class MainWindow
 
     // ================================================================ Son açılanlar
 
-    private void RecentMenu_SubmenuOpened(object sender, RoutedEventArgs e)
+    private void FillRecentMenu(ItemsControl RecentMenu)
     {
         RecentMenu.Items.Clear();
         var list = _settings.RecentFiles.ToList();
@@ -221,11 +221,11 @@ public partial class MainWindow
             m.Items.Add(CtxCmd("Grubu çöz", "UNGROUP", "UG"));
             m.Items.Add(CtxCmd("Patlat", "EXPLODE", "X"));
             m.Items.Add(new Separator());
-            m.Items.Add(CtxCmd("Ağırlık merkezi → 0,0", "ORIGINCENTROID", "OC"));
-            m.Items.Add(CtxCmd("Asal eksenlere hizala", "PRINCIPAL"));
-            m.Items.Add(CtxCmd("Kesit özellikleri", "MASSPROP", "MP"));
+            m.Items.Add(CtxCmd("Blok oluştur", "BLOCK", "B"));
+            m.Items.Add(CtxItem("Sol alt → 0,0", () => _ = _editor.MoveBoxPointToOrigin(0, 0)));
+            m.Items.Add(CtxItem("Merkez → 0,0", () => _ = _editor.MoveBoxPointToOrigin(0.5, 0.5)));
             m.Items.Add(CtxItem("Kütüphaneye ekle...", () => OpenLibrary()?.AddSelectionToLibrary()));
-            m.Items.Add(CtxItem("PDF kesit raporu...", CreateReport, "Ctrl+P"));
+            m.Items.Add(CtxItem("PDF profil raporu...", CreateReport, "Ctrl+P"));
             m.Items.Add(CtxItem("Seçileni dışa aktar...", () => ExportSel_Click(this, new RoutedEventArgs())));
             m.Items.Add(new Separator());
             m.Items.Add(CtxItem("Seçimi temizle", () => _doc.ClearSelection(), "Esc"));

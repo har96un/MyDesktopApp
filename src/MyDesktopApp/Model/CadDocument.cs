@@ -22,6 +22,8 @@ public sealed class CadDocument
     public List<Entity> Entities { get; private set; } = new();
     public Dictionary<string, LayerInfo> Layers { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
     public HashSet<Entity> Selection { get; } = new();
+    /// <summary>Blok tanımları (ada göre).</summary>
+    public Dictionary<string, BlockDef> Blocks { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public string? FilePath { get; set; }
     public bool IsModified { get; set; }
@@ -72,6 +74,7 @@ public sealed class CadDocument
         Entities = new List<Entity>();
         Layers = new Dictionary<string, LayerInfo>(StringComparer.OrdinalIgnoreCase);
         EnsureLayer("0");
+        Blocks = new Dictionary<string, BlockDef>(StringComparer.OrdinalIgnoreCase);
         CurrentLayer = "0";
         Selection.Clear();
         _undo.Clear();
@@ -87,6 +90,14 @@ public sealed class CadDocument
     {
         foreach (var l in other.Layers.Values)
             if (!Layers.ContainsKey(l.Name)) Layers[l.Name] = l.Clone();
+
+        // Blok tanımları: aynı ad başka tanımsa yeniden adlandır
+        foreach (var bd in other.Blocks.Values.ToList())
+        {
+            if (Blocks.TryGetValue(bd.Name, out var ex) && !ReferenceEquals(ex, bd))
+                bd.Name = UniqueBlockName(bd.Name);
+            Blocks[bd.Name] = bd;
+        }
 
         // Çakışan grup adlarını yeniden adlandır
         var existing = new HashSet<string>(GroupNames);
@@ -232,6 +243,21 @@ public sealed class CadDocument
             e.GroupId = nn;
         }
     }
+
+    // ================================================================ Bloklar
+
+    public string UniqueBlockName(string baseName)
+    {
+        if (!Blocks.ContainsKey(baseName)) return baseName;
+        for (int i = 2; ; i++)
+        {
+            var n = $"{baseName}_{i}";
+            if (!Blocks.ContainsKey(n)) return n;
+        }
+    }
+
+    public int CountBlockRefs(string name) =>
+        Entities.OfType<BlockRefEntity>().Count(b => string.Equals(b.Name, name, StringComparison.OrdinalIgnoreCase));
 
     // ================================================================ Katmanlar
 

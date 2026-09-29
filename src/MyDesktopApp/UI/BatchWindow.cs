@@ -23,9 +23,8 @@ public sealed class BatchWindow : Window
     private readonly ComboBox _format = new();
     private readonly TextBox _scale = new() { Text = "1", Width = 70, Padding = new Thickness(2) };
     private readonly TextBox _suffix = new() { Text = "", Width = 110, Padding = new Thickness(2) };
-    private readonly CheckBox _principal = new() { Content = "Asal eksenlere hizala (döndürmeden önce)" };
-    private readonly CheckBox _pdf = new() { Content = "Her dosya için PDF kesit raporu" };
-    private readonly CheckBox _csv = new() { Content = "Kesit özellikleri özet tablosu (CSV)", IsChecked = true };
+    private readonly CheckBox _pdf = new() { Content = "Her dosya için PDF profil raporu" };
+    private readonly CheckBox _csv = new() { Content = "Profil ölçüleri özet tablosu (CSV: genişlik × yükseklik)", IsChecked = true };
     private readonly CheckBox _saveDrawing = new() { Content = "Dönüştürülmüş çizimi kaydet", IsChecked = true };
     private readonly ProgressBar _progress = new() { Height = 14, Margin = new Thickness(0, 6, 0, 6) };
     private readonly TextBox _log = new() { IsReadOnly = true, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, FontFamily = new FontFamily("Consolas"), FontSize = 11, Height = 130, TextWrapping = TextWrapping.NoWrap };
@@ -42,7 +41,7 @@ public sealed class BatchWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ShowInTaskbar = false;
 
-        foreach (var s in new[] { "Değiştirme", "Ağırlık merkezi → 0,0", "Sol alt köşe → 0,0", "Kutu merkezi → 0,0" }) _refPoint.Items.Add(s);
+        foreach (var s in ProfileOps.RefNames) _refPoint.Items.Add(s);
         _refPoint.SelectedIndex = 1;
         foreach (var s in new[] { "0°", "+90°", "180°", "−90° (270°)" }) _rotate.Items.Add(s);
         _rotate.SelectedIndex = 0;
@@ -63,7 +62,6 @@ public sealed class BatchWindow : Window
         root.Children.Add(_files);
 
         root.Children.Add(Header("2. İşlemler (sırayla uygulanır)"));
-        root.Children.Add(_principal);
         root.Children.Add(Row("Döndür (0,0 etrafında, konumlandırmadan sonra):", _rotate));
         root.Children.Add(Row("Aynala:", _mirror));
         root.Children.Add(Row("Ölçek katsayısı:", _scale));
@@ -172,7 +170,6 @@ public sealed class BatchWindow : Window
             Ref = (RefPoint)_refPoint.SelectedIndex,
             Rot = _rotate.SelectedIndex switch { 1 => Math.PI / 2, 2 => Math.PI, 3 => -Math.PI / 2, _ => 0.0 },
             Mirror = _mirror.SelectedIndex,
-            Principal = _principal.IsChecked == true,
             Save = _saveDrawing.IsChecked == true,
             Fmt = CadFileIO.Formats[Math.Max(0, _format.SelectedIndex)],
             Suffix = _suffix.Text.Trim(),
@@ -187,7 +184,7 @@ public sealed class BatchWindow : Window
         _progress.Value = 0;
         _log.Clear();
         var csv = new StringBuilder();
-        csv.AppendLine("Dosya;Genişlik;Yükseklik;Alan;Çevre;Gx;Gy;Ix;Iy;Ixy;I1;I2;Alfa(°);Uyarı");
+        csv.AppendLine("Dosya;Genişlik;Yükseklik;MinX;MinY;MaxX;MaxY;Nesne sayısı;Uyarı");
         int ok = 0, fail = 0;
         string company = _settings.CompanyName, logo = _settings.LogoPath, author = _settings.ReportAuthor;
 
@@ -205,7 +202,6 @@ public sealed class BatchWindow : Window
                         CadFileIO.Load(f, doc);
                         var ents = doc.Entities;
                         string warn = "";
-                        if (opt.Principal && !ProfileOps.AlignPrincipal(ents)) warn = "kapalı kesit yok (asal hizalama atlandı)";
                         if (Math.Abs(opt.Scale - 1) > 1e-12) ProfileOps.Apply(ents, Mat2D.Scaling(opt.Scale, Vec2.Zero));
                         // Döndürme/aynalama referans noktası etrafında, sonra konumlandırma
                         var pivot = opt.Ref != RefPoint.None ? ProfileOps.Reference(ents, opt.Ref) : Vec2.Zero;
@@ -218,12 +214,11 @@ public sealed class BatchWindow : Window
                         if (opt.Save) CadFileIO.Save(baseOut + opt.Fmt.Ext, doc, null, opt.Fmt);
 
                         var b = doc.Extents(ents);
-                        var sp = SectionProperties.Compute(ents);
                         string N(double v) => v.ToString("0.######", CultureInfo.GetCultureInfo("tr-TR"));
-                        if (!sp.IsValid && warn.Length == 0) warn = "kapalı kesit bulunamadı";
-                        string row = sp.IsValid
-                            ? $"{name};{N(b.Width)};{N(b.Height)};{N(sp.Area)};{N(sp.Perimeter)};{N(sp.Centroid.X)};{N(sp.Centroid.Y)};{N(sp.Ix)};{N(sp.Iy)};{N(sp.Ixy)};{N(sp.I1)};{N(sp.I2)};{N(GeoUtil.RadToDeg(sp.PrincipalAngle))};{warn}"
-                            : $"{name};{N(b.Width)};{N(b.Height)};;;;;;;;;;;{warn}";
+                        if (b.IsEmpty) warn = "çizim boş";
+                        string row = b.IsEmpty
+                            ? $"{name};;;;;;;0;{warn}"
+                            : $"{name};{N(b.Width)};{N(b.Height)};{N(b.MinX)};{N(b.MinY)};{N(b.MaxX)};{N(b.MaxY)};{ents.Count};{warn}";
                         return (row, ents, baseOut);
                     });
                     // PDF (WPF yazı tipi altyapısı) arayüz iş parçacığında üretilir
@@ -235,7 +230,7 @@ public sealed class BatchWindow : Window
                             CompanyName = company,
                             LogoPath = logo,
                             Author = author,
-                            Title = "Profil Kesit Raporu – " + name
+                            Title = "Profil Raporu – " + name
                         });
                     csv.AppendLine(line);
                     Log("✓ " + name);
@@ -244,7 +239,7 @@ public sealed class BatchWindow : Window
                 catch (Exception ex)
                 {
                     Log($"✗ {name}: {ex.Message}");
-                    csv.AppendLine($"{name};;;;;;;;;;;;;HATA: {ex.Message.Replace(';', ',')}");
+                    csv.AppendLine($"{name};;;;;;;;HATA: {ex.Message.Replace(';', ',')}");
                     fail++;
                 }
                 _progress.Value++;
@@ -252,7 +247,7 @@ public sealed class BatchWindow : Window
 
             if (opt.Csv)
             {
-                string csvPath = System.IO.Path.Combine(outDir, "kesit_ozellikleri.csv");
+                string csvPath = System.IO.Path.Combine(outDir, "profil_olculeri.csv");
                 File.WriteAllText(csvPath, csv.ToString(), new UTF8Encoding(true));
                 Log("Özet tablo: " + csvPath);
             }

@@ -260,6 +260,17 @@ public partial class MainWindow
                 PropsPanel.Children.Add(new TextBlock { Text = "Metinde <> ölçü değerinin yerine geçer.", FontSize = 10, Foreground = Brushes.Gray });
                 break;
 
+            case BlockRefEntity br:
+                PropText("Blok adı", br.Name, null);
+                PropNum("Ekleme X", br.InsertPoint.X, v => EditSelection(() => br.Transform(Mat2D.Translation(new Vec2(v - br.InsertPoint.X, 0)))));
+                PropNum("Ekleme Y", br.InsertPoint.Y, v => EditSelection(() => br.Transform(Mat2D.Translation(new Vec2(0, v - br.InsertPoint.Y)))));
+                PropNum("Açı (°)", br.RotationRad, v => EditSelection(() => br.Transform(Mat2D.Rotation(v - br.RotationRad, br.InsertPoint))), degrees: true);
+                PropNum("Ölçek", br.ScaleFactor, v => EditSelection(() => br.Transform(Mat2D.Scaling(v / br.ScaleFactor, br.InsertPoint))), v => v > 1e-9);
+                PropText("Aynalı", br.Mirrored ? "Evet" : "Hayır", null);
+                PropNum("Nesne sayısı", br.Def.Entities.Count, null);
+                PropNum("Kopya sayısı", _doc.CountBlockRefs(br.Name), null);
+                break;
+
             case HatchEntity h:
                 PropCombo("Desen", HatchEntity.Patterns, HatchEntity.Patterns.FirstOrDefault(x => string.Equals(x, h.Pattern, StringComparison.OrdinalIgnoreCase)),
                     s => EditSelection(() => h.Pattern = s));

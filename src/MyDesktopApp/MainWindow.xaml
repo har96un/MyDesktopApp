@@ -13,6 +13,62 @@
             <Setter Property="Margin" Value="1,0"/>
             <Setter Property="Focusable" Value="False"/>
         </Style>
+        <Style x:Key="RibbonBtn" TargetType="Button">
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#FF1E2A36"/>
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="Margin" Value="1"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#FFE1ECFA"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#FF9FC0E8"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#FFC4D9F2"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="RibbonTab" TargetType="Button">
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Padding" Value="14,4"/>
+            <Setter Property="Margin" Value="1,4,1,0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1,1,1,0" CornerRadius="5,5,0,0" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#80FFFFFF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <Style x:Key="PanelHeader" TargetType="TextBlock">
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Margin" Value="0,10,0,4"/>
@@ -21,125 +77,8 @@
     </Window.Resources>
 
     <DockPanel>
-        <!-- Menü -->
-        <Menu DockPanel.Dock="Top">
-            <MenuItem Header="_Dosya">
-                <MenuItem Header="_Yeni (yeni sekme)" InputGestureText="Ctrl+N" Click="New_Click"/>
-                <MenuItem Header="_Aç (DWG/DXF)..." InputGestureText="Ctrl+O" Click="Open_Click"/>
-                <MenuItem Header="_İçe Aktar (mevcut çizime ekle)..." Click="Import_Click"/>
-                <Separator/>
-                <MenuItem Header="_Kaydet" InputGestureText="Ctrl+S" Click="Save_Click"/>
-                <MenuItem Header="_Farklı Kaydet..." Click="SaveAs_Click"/>
-                <MenuItem Header="Seçileni _Dışa Aktar..." Click="ExportSel_Click"/>
-                <Separator/>
-                <MenuItem Header="_PDF Kesit Raporu..." Click="Report_Click"/>
-                <MenuItem Header="_Toplu İşlem..." Click="Batch_Click"/>
-                <Separator/>
-                <MenuItem x:Name="RecentMenu" Header="_Son Açılanlar" SubmenuOpened="RecentMenu_SubmenuOpened">
-                    <MenuItem Header="(boş)" IsEnabled="False"/>
-                </MenuItem>
-                <Separator/>
-                <MenuItem Header="Sekmeyi _Kapat" InputGestureText="Ctrl+W" Click="CloseTab_Click"/>
-                <Separator/>
-                <MenuItem Header="Çı_kış" Click="Exit_Click"/>
-            </MenuItem>
-            <MenuItem Header="_Düzen">
-                <MenuItem Header="_Geri Al" InputGestureText="Ctrl+Z" Tag="UNDO" Click="Cmd_Click"/>
-                <MenuItem Header="_Yinele" InputGestureText="Ctrl+Y" Tag="REDO" Click="Cmd_Click"/>
-                <Separator/>
-                <MenuItem Header="_Tümünü Seç" InputGestureText="Ctrl+A" Tag="SELECTALL" Click="Cmd_Click"/>
-                <MenuItem Header="_Sil" InputGestureText="Del" Tag="ERASE" Click="Cmd_Click"/>
-            </MenuItem>
-            <MenuItem Header="_Çizim">
-                <MenuItem Header="Doğrusal Ölçü" Tag="DIMLINEAR" Click="Cmd_Click"/>
-                <MenuItem Header="Paralel Ölçü" Tag="DIMALIGNED" Click="Cmd_Click"/>
-                <MenuItem Header="Yarıçap Ölçüsü" Tag="DIMRADIUS" Click="Cmd_Click"/>
-                <MenuItem Header="Çap Ölçüsü" Tag="DIMDIAMETER" Click="Cmd_Click"/>
-                <MenuItem Header="Açı Ölçüsü" Tag="DIMANGULAR" Click="Cmd_Click"/>
-                <Separator/>
-                <MenuItem Header="Tarama" Tag="HATCH" Click="Cmd_Click"/>
-                <Separator/>
-                <MenuItem Header="Buda (Trim)" Tag="TRIM" Click="Cmd_Click"/>
-                <MenuItem Header="Uzat (Extend)" Tag="EXTEND" Click="Cmd_Click"/>
-                <MenuItem Header="Yuvarla (Fillet)" Tag="FILLET" Click="Cmd_Click"/>
-                <MenuItem Header="Pah (Chamfer)" Tag="CHAMFER" Click="Cmd_Click"/>
-            </MenuItem>
-            <MenuItem Header="_Görünüm">
-                <MenuItem Header="_Tümünü Göster" Tag="ZOOMEXTENTS" Click="Cmd_Click"/>
-            </MenuItem>
-            <MenuItem Header="_Araçlar">
-                <MenuItem Header="Profil _Kütüphanesi..." InputGestureText="Ctrl+L" Click="Library_Click"/>
-                <MenuItem Header="_Toplu İşlem..." Click="Batch_Click"/>
-                <MenuItem Header="_PDF Kesit Raporu..." InputGestureText="Ctrl+P" Click="Report_Click"/>
-                <MenuItem Header="Çizimi _Denetle (şüpheli nesneler)..." Click="Audit_Click"/>
-                <Separator/>
-                <MenuItem Header="_Ayarlar ve Kısayollar..." Click="Settings_Click"/>
-            </MenuItem>
-            <MenuItem Header="_Yardım">
-                <MenuItem Header="_Komut Listesi" Tag="HELP" Click="Cmd_Click"/>
-            </MenuItem>
-        </Menu>
-
-        <!-- Araç çubukları -->
-        <ToolBarTray DockPanel.Dock="Top">
-            <ToolBar Header="Çizim ">
-                <Button Style="{StaticResource ToolBtn}" Content="Çizgi" Tag="LINE" Click="Cmd_Click" ToolTip="Çizgi (L)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Polyline" Tag="PLINE" Click="Cmd_Click" ToolTip="Polyline (PL)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Dikdörtgen" Tag="RECTANG" Click="Cmd_Click" ToolTip="Dikdörtgen (REC)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Daire" Tag="CIRCLE" Click="Cmd_Click" ToolTip="Daire (C)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Yay" Tag="ARC" Click="Cmd_Click" ToolTip="3 noktadan yay (A)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Yazı" Tag="TEXT" Click="Cmd_Click" ToolTip="Yazı (DT)"/>
-            </ToolBar>
-            <ToolBar Header="Değiştir ">
-                <Button Style="{StaticResource ToolBtn}" Content="Taşı" Tag="MOVE" Click="Cmd_Click" ToolTip="Taşı (M)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Kopyala" Tag="COPY" Click="Cmd_Click" ToolTip="Kopyala (CO)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Döndür" Tag="ROTATE" Click="Cmd_Click" ToolTip="Döndür (RO)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Aynala" Tag="MIRROR" Click="Cmd_Click" ToolTip="Aynala (MI)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Ölçekle" Tag="SCALE" Click="Cmd_Click" ToolTip="Ölçekle (SC)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Ötele" Tag="OFFSET" Click="Cmd_Click" ToolTip="Paralel kopya / Offset (O)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Buda" Tag="TRIM" Click="Cmd_Click" ToolTip="Kesme kenarları arasında kalan parçayı sil (TR). Önceden seçim yapılırsa kenar olarak o nesneler kullanılır."/>
-                <Button Style="{StaticResource ToolBtn}" Content="Uzat" Tag="EXTEND" Click="Cmd_Click" ToolTip="Nesneyi sınıra kadar uzat (EX)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Yuvarla" Tag="FILLET" Click="Cmd_Click" ToolTip="İki çizgiyi yayla birleştir (F). Y: yarıçap, P: polyline'ın tüm köşeleri"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Pah" Tag="CHAMFER" Click="Cmd_Click" ToolTip="Pah kır (CHA). M: mesafeler, P: polyline'ın tüm köşeleri"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Birleştir" Tag="JOIN" Click="Cmd_Click" ToolTip="Uç uca nesneleri polyline yap (J)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Patlat" Tag="EXPLODE" Click="Cmd_Click" ToolTip="Polyline'ı parçala (X)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Sil" Tag="ERASE" Click="Cmd_Click" ToolTip="Sil (E / Del)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Grupla" Tag="GROUP" Click="Cmd_Click" ToolTip="Seçili nesneleri grupla (G). Ctrl+tık gruptan tek nesne seçer."/>
-                <Button Style="{StaticResource ToolBtn}" Content="Grubu Çöz" Tag="UNGROUP" Click="Cmd_Click" ToolTip="Grubu çöz (UG)"/>
-                <Separator/>
-                <Button Style="{StaticResource ToolBtn}" Content="Ölç" Tag="DIST" Click="Cmd_Click" ToolTip="Mesafe (DI)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Tümünü Göster" Tag="ZOOMEXTENTS" Click="Cmd_Click" ToolTip="Zoom Extents (ZE) / orta tuşa çift tık"/>
-            </ToolBar>
-            <ToolBar Header="Ölçü / Tarama " Band="1">
-                <Button Style="{StaticResource ToolBtn}" Content="Doğrusal" Tag="DIMLINEAR" Click="Cmd_Click" ToolTip="Yatay/dikey ölçü (DLI)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Paralel" Tag="DIMALIGNED" Click="Cmd_Click" ToolTip="Paralel ölçü (DAL)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="R" Tag="DIMRADIUS" Click="Cmd_Click" ToolTip="Yarıçap ölçüsü (DRA)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Ø" Tag="DIMDIAMETER" Click="Cmd_Click" ToolTip="Çap ölçüsü (DDI)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Açı" Tag="DIMANGULAR" Click="Cmd_Click" ToolTip="Açı ölçüsü (DAN)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Tarama" Tag="HATCH" Click="Cmd_Click" ToolTip="Kapalı alanın içine tıklayarak tara (H)"/>
-            </ToolBar>
-            <ToolBar Header="Araçlar " Band="1">
-                <Button Style="{StaticResource ToolBtn}" Content="Kütüphane" Click="Library_Click" ToolTip="Profil kütüphanesi (Ctrl+L)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Toplu İşlem" Click="Batch_Click" ToolTip="Çok sayıda dosyayı dönüştür"/>
-                <Button Style="{StaticResource ToolBtn}" Content="PDF Rapor" Click="Report_Click" ToolTip="Seçili kesit (ya da tüm çizim) için PDF raporu (Ctrl+P)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Ayarlar" Click="Settings_Click" ToolTip="Ayarlar, kısa adlar ve klavye kısayolları"/>
-            </ToolBar>
-            <ToolBar Header="Profil → 0,0 " Band="2">
-                <Button Style="{StaticResource ToolBtn}" Content="Ağırlık Merkezi → 0,0" Tag="ORIGINCENTROID" Click="Cmd_Click" ToolTip="Kesitin ağırlık merkezini orijine taşır (OC)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Sol Alt → 0,0" Tag="ORIGINLOWERLEFT" Click="Cmd_Click" ToolTip="Sınır kutusunun sol alt köşesini orijine taşır (OLL)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Kutu Merkezi → 0,0" Tag="ORIGINCENTER" Click="Cmd_Click" ToolTip="Sınır kutusu merkezini orijine taşır (OBC)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Nokta → 0,0" Tag="ORIGIN" Click="Cmd_Click" ToolTip="Seçtiğiniz noktayı orijine taşır (OR)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Hizala (2 nokta)" Tag="ALIGN" Click="Cmd_Click" ToolTip="1. nokta 0,0'a, 2. nokta +X yönüne (AL)"/>
-                <Separator/>
-                <Button Style="{StaticResource ToolBtn}" Content="⟲ +90°" Tag="ROT90" Click="Cmd_Click" ToolTip="0,0 etrafında +90° (R90)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="⟳ −90°" Tag="ROTM90" Click="Cmd_Click" ToolTip="0,0 etrafında −90° (R-90)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="180°" Tag="ROT180" Click="Cmd_Click" ToolTip="0,0 etrafında 180° (R180)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Aynala X ekseni" Tag="MIRRORX" Click="Cmd_Click" ToolTip="y → −y (MX)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Aynala Y ekseni" Tag="MIRRORY" Click="Cmd_Click" ToolTip="x → −x (MY)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Asal Eksen" Tag="PRINCIPAL" Click="Cmd_Click" ToolTip="Kesiti asal atalet eksenlerine hizalar (ASAL)"/>
-                <Button Style="{StaticResource ToolBtn}" Content="Kesit Özellikleri" Tag="MASSPROP" Click="Cmd_Click" ToolTip="Alan, ağırlık merkezi, atalet (MP)"/>
-            </ToolBar>
-        </ToolBarTray>
+        <!-- Şerit (Ribbon): MainWindow.Ribbon.cs içinde oluşturulur -->
+        <Border x:Name="RibbonHost" DockPanel.Dock="Top"/>
 
         <!-- Durum çubuğu -->
         <StatusBar DockPanel.Dock="Bottom">
@@ -191,9 +130,6 @@
                     <TextBlock Style="{StaticResource PanelHeader}" Text="Özellikler"/>
                     <StackPanel x:Name="PropsPanel"/>
 
-                    <TextBlock Style="{StaticResource PanelHeader}" Text="Kesit Özellikleri"/>
-                    <TextBlock x:Name="SectionInfo" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"/>
-
                     <TextBlock Style="{StaticResource PanelHeader}" Text="Katmanlar"/>
                     <WrapPanel Margin="0,0,0,4">
                         <Button Content="+ Yeni" Padding="6,1" Margin="0,0,4,0" Focusable="False" Click="NewLayer_Click" ToolTip="Yeni katman oluştur ve geçerli yap"/>
@@ -205,7 +141,8 @@
 
                     <TextBlock Style="{StaticResource PanelHeader}" Text="İpuçları"/>
                     <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#FF555555">
-                        Komutları yazıp Enter/Boşluk ile çalıştırın (L, PL, C, M, RO, MI, SC, O...).<LineBreak/>
+                        Komutları yazıp Enter/Boşluk ile çalıştırın (L, PL, C, M, RO, MI, SC, O, B, I...).<LineBreak/>
+                        Profil sekmesindeki 9 noktalı seçici: sınır kutusunun tıklanan noktası 0,0'a gelir (seçim yoksa tüm çizim).<LineBreak/>
                         Koordinat: <Run FontFamily="Consolas">x,y</Run> · <Run FontFamily="Consolas">@dx,dy</Run> · <Run FontFamily="Consolas">@uzunluk&lt;açı</Run><LineBreak/>
                         Tekerlek: yakınlaştır · Orta tuş: kaydır · Sağ tık: komutta Enter, boşta menü<LineBreak/>
                         Kütüphaneden profili çizime sürükleyip bırakabilirsiniz; DWG/DXF dosyası da bırakılabilir.<LineBreak/>

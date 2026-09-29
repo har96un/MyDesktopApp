@@ -35,7 +35,7 @@ public static class SectionProperties
         var loops = new List<List<Vec2>>();
         var chains = new List<List<Vec2>>();
 
-        foreach (var e in entities)
+        foreach (var e in BlockRefEntity.Flatten(entities))
         {
             if (e is TextEntity or DimensionEntity or HatchEntity) continue;
             var pts = e.ToPoints();

@@ -17,12 +17,11 @@ public sealed class ReportInput
     public string LogoPath { get; init; } = "";
     public string Author { get; init; } = "";
     public bool AutoDimensions { get; init; } = true;
-    public bool ShowAxes { get; init; } = true;
     /// <summary>Çizim birimi (etiketlerde).</summary>
     public string Unit { get; init; } = "mm";
 }
 
-/// <summary>A4 PDF kesit raporu (logo, çizim, eksenler, kesit özellikleri tablosu).</summary>
+/// <summary>A4 PDF profil raporu (logo, çizim, otomatik ölçüler, sınır kutusu ölçüleri).</summary>
 public static class PdfReport
 {
     private const double Margin = 36;
@@ -88,10 +87,9 @@ public static class PdfReport
         var frame = new XRect(Margin, y, W - 2 * Margin, 390);
         g.DrawRectangle(new XPen(XColor.FromArgb(180, 180, 180), 0.6), frame);
 
-        var ents = input.Entities;
+        var ents = BlockRefEntity.Flatten(input.Entities).ToList();
         var box = BBox.Empty;
         foreach (var e in ents) box.Add(e.Bounds());
-        var sp = SectionProperties.Compute(ents.Where(e => e is not (TextEntity or DimensionEntity or HatchEntity)));
         var geomBox = BBox.Empty;
         foreach (var e in ents.Where(e => e is not (TextEntity or DimensionEntity))) geomBox.Add(e.Bounds());
         if (geomBox.IsEmpty) geomBox = box;
@@ -110,7 +108,6 @@ public static class PdfReport
             g.IntersectClip(frame);
             DrawEntities(g, ents, P, scale);
 
-            if (input.ShowAxes && sp.IsValid) DrawAxes(g, sp, geomBox, P, scale);
             if (input.AutoDimensions && !geomBox.IsEmpty) DrawAutoDims(g, geomBox, P, input.Unit);
             g.Restore(state);
 
@@ -124,9 +121,9 @@ public static class PdfReport
         y = frame.Bottom + 14;
 
         // ---------------------------------------------------------------- Tablo
-        g.DrawString("Kesit Özellikleri", Font(12, true), new XSolidBrush(accent), new XRect(Margin, y, 300, 16), XStringFormats.TopLeft);
+        g.DrawString("Profil Ölçüleri", Font(12, true), new XSolidBrush(accent), new XRect(Margin, y, 300, 16), XStringFormats.TopLeft);
         y += 20;
-        var rows = BuildRows(sp, geomBox, input.Unit);
+        var rows = BuildRows(geomBox, ents, input.Unit);
         double colW = (W - 2 * Margin) / 2;
         int half = (rows.Count + 1) / 2;
         double rowH = 17;
@@ -142,13 +139,11 @@ public static class PdfReport
             g.DrawLine(linePen, cx, cy + rowH, cx + colW - 8, cy + rowH);
         }
         y += half * rowH + 10;
-        if (!sp.IsValid)
-            g.DrawString("Kapalı kesit bulunamadı; yalnızca sınır ölçüleri verilmiştir.", Font(9), gray, new XRect(Margin, y, 400, 12), XStringFormats.TopLeft);
 
         // ---------------------------------------------------------------- Alt bilgi
         g.DrawLine(new XPen(XColor.FromArgb(200, 200, 200), 0.5), Margin, H - Margin - 14, W - Margin, H - Margin - 14);
         g.DrawString("Profil CAD ile oluşturuldu", Font(8), gray, new XRect(Margin, H - Margin - 10, 250, 10), XStringFormats.TopLeft);
-        g.DrawString($"Eksenler ağırlık merkezinden geçer · α: asal eksen açısı", Font(8), gray,
+        g.DrawString("Ölçüler profilin sınır kutusuna (dikdörtgen) göredir", Font(8), gray,
             new XRect(W - Margin - 300, H - Margin - 10, 300, 10), XStringFormats.TopRight);
     }
 
@@ -161,33 +156,19 @@ public static class PdfReport
         return v.ToString(a >= 1000 ? "#,0.##" : "0.####", System.Globalization.CultureInfo.GetCultureInfo("tr-TR"));
     }
 
-    private static List<(string Label, string Value)> BuildRows(SectionResult sp, BBox b, string u)
+    private static List<(string Label, string Value)> BuildRows(BBox b, IReadOnlyList<Entity> ents, string u)
     {
         var rows = new List<(string, string)>();
-        if (!b.IsEmpty)
-        {
-            rows.Add(("Genişlik × Yükseklik", $"{N(b.Width)} × {N(b.Height)} {u}"));
-        }
-        if (!sp.IsValid) return rows;
-        rows.Add(("Alan A", $"{N(sp.Area)} {u}²"));
-        rows.Add(("Çevre uzunluğu", $"{N(sp.Perimeter)} {u}"));
-        rows.Add(("Ağırlık merkezi (x, y)", $"{N(sp.Centroid.X)} ; {N(sp.Centroid.Y)}"));
-        rows.Add(("Çevre / boşluk", $"{sp.LoopCount} / {sp.HoleCount}"));
-        rows.Add(("Ix", $"{N(sp.Ix)} {u}⁴"));
-        rows.Add(("Iy", $"{N(sp.Iy)} {u}⁴"));
-        rows.Add(("Ixy", $"{N(sp.Ixy)} {u}⁴"));
-        rows.Add(("I1 (maks.)", $"{N(sp.I1)} {u}⁴"));
-        rows.Add(("I2 (min.)", $"{N(sp.I2)} {u}⁴"));
-        rows.Add(("Asal eksen açısı α", $"{N(GeoUtil.RadToDeg(sp.PrincipalAngle))}°"));
-        if (!b.IsEmpty)
-        {
-            double cx = sp.Centroid.X, cy = sp.Centroid.Y;
-            double ey = Math.Max(b.MaxY - cy, cy - b.MinY), ex = Math.Max(b.MaxX - cx, cx - b.MinX);
-            if (ey > 0) rows.Add(("Wx (mukavemet momenti)", $"{N(sp.Ix / ey)} {u}³"));
-            if (ex > 0) rows.Add(("Wy (mukavemet momenti)", $"{N(sp.Iy / ex)} {u}³"));
-        }
-        rows.Add(("ix (atalet yarıçapı)", $"{N(Math.Sqrt(Math.Abs(sp.Ix / sp.Area)))} {u}"));
-        rows.Add(("iy (atalet yarıçapı)", $"{N(Math.Sqrt(Math.Abs(sp.Iy / sp.Area)))} {u}"));
+        if (b.IsEmpty) return rows;
+        rows.Add(("Genişlik × Yükseklik", $"{N(b.Width)} × {N(b.Height)} {u}"));
+        rows.Add(("Genişlik (X)", $"{N(b.Width)} {u}"));
+        rows.Add(("Yükseklik (Y)", $"{N(b.Height)} {u}"));
+        rows.Add(("Sol alt köşe", $"{N(b.MinX)} ; {N(b.MinY)}"));
+        rows.Add(("Sağ üst köşe", $"{N(b.MaxX)} ; {N(b.MaxY)}"));
+        rows.Add(("Kutu merkezi", $"{N((b.MinX + b.MaxX) / 2)} ; {N((b.MinY + b.MaxY) / 2)}"));
+        int circles = ents.Count(e => e is CircleEntity);
+        rows.Add(("Nesne sayısı", ents.Count(e => e is not (TextEntity or DimensionEntity or HatchEntity)).ToString()));
+        if (circles > 0) rows.Add(("Delik / daire", circles.ToString()));
         return rows;
     }
 
@@ -261,42 +242,6 @@ public static class PdfReport
                     break;
             }
         }
-    }
-
-    private static void DrawAxes(XGraphics g, SectionResult sp, BBox b, Func<Vec2, XPoint> P, double scale)
-    {
-        var c = sp.Centroid;
-        double ext = Math.Max(b.Width, b.Height) * 0.5 + 14 / scale;
-        var red = XColor.FromArgb(0xC0, 0x30, 0x30);
-        var axisPen = new XPen(red, 0.7) { DashStyle = XDashStyle.DashDot };
-        var labelBrush = new XSolidBrush(red);
-        var hx1 = new Vec2(b.MinX - 14 / scale, c.Y);
-        var hx2 = new Vec2(b.MaxX + 14 / scale, c.Y);
-        var vy1 = new Vec2(c.X, b.MinY - 14 / scale);
-        var vy2 = new Vec2(c.X, b.MaxY + 14 / scale);
-        g.DrawLine(axisPen, P(hx1), P(hx2));
-        g.DrawLine(axisPen, P(vy1), P(vy2));
-        g.DrawString("x", Font(9, true), labelBrush, P(hx2) + new XVector(3, 0), XStringFormats.CenterLeft);
-        g.DrawString("y", Font(9, true), labelBrush, P(vy2) + new XVector(0, -3), XStringFormats.BottomCenter);
-
-        // Asal eksenler (eksenlerden belirgin farklıysa)
-        double a = sp.PrincipalAngle;
-        if (Math.Abs(Math.Sin(a)) > 0.01 && Math.Abs(Math.Cos(a)) > 0.01)
-        {
-            var blue = XColor.FromArgb(0x20, 0x60, 0xB0);
-            var pp = new XPen(blue, 0.6) { DashStyle = XDashStyle.Dash };
-            var lb = new XSolidBrush(blue);
-            var u = Vec2.Polar(ext, a);
-            var v = Vec2.Polar(ext, a + Math.PI / 2);
-            g.DrawLine(pp, P(c - u), P(c + u));
-            g.DrawLine(pp, P(c - v), P(c + v));
-            g.DrawString("1", Font(9, true), lb, P(c + u) + new XVector(3, 0), XStringFormats.CenterLeft);
-            g.DrawString("2", Font(9, true), lb, P(c + v) + new XVector(3, 0), XStringFormats.CenterLeft);
-        }
-
-        var cp = P(c);
-        g.DrawEllipse(new XPen(red, 0.8), XBrushes.White, cp.X - 3, cp.Y - 3, 6, 6);
-        g.DrawString("G", Font(8, true), labelBrush, cp + new XVector(4, 4), XStringFormats.TopLeft);
     }
 
     private static void DrawAutoDims(XGraphics g, BBox b, Func<Vec2, XPoint> P, string unit)

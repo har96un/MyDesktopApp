@@ -306,6 +306,7 @@ public static class CadFileIO
             case AE.Insert ins:
                 {
                     if (depth > 16 || ins.Block == null) { rep.Skip("Blok"); break; }
+                    if (TryKeepBlock(ins, doc, rep, layer, color, depth)) goto Attributes;
                     // Blok içeriğini blok koordinatlarında dönüştür, sonra kendi dönüşümümüzle yerleştir.
                     // (Kütüphanenin Explode() işlevi aynalanmış bloklarda yay yönlerini çevirmediği için kullanılmıyor.)
                     var tmp = new Model.CadDocument();
@@ -332,6 +333,7 @@ public static class CadFileIO
                                 rep.Imported++;
                             }
                         }
+                    Attributes:
                     // Öznitelik (attribute) yazıları dünya koordinatlarındadır
                     try
                     {
@@ -355,6 +357,56 @@ public static class CadFileIO
     }
 
     private static Vec2 V(XYZ p) => new(p.X, p.Y);
+
+    /// <summary>
+    /// Adlı, dizisiz ve eşit ölçekli üst düzey blokları blok referansı olarak korur (tanım bir kez oluşturulur).
+    /// Uygun değilse false döner ve blok patlatılarak alınır.
+    /// </summary>
+    private static bool TryKeepBlock(AE.Insert ins, Model.CadDocument doc, ImportReport rep, string layer, EntColor? color, int depth)
+    {
+        try
+        {
+            if (depth != 0 || ins.Block == null) return false;
+            if (ins.RowCount > 1 || ins.ColumnCount > 1) return false;
+            string name = ins.Block.Name ?? "";
+            if (name.Length == 0 || name.StartsWith("*")) return false;
+            var m0 = InsertMatrix(ins, 0, 0);
+            if (!IsConformal(m0) || Math.Abs(m0.Determinant) < 1e-18) return false;
+
+            if (!doc.Blocks.TryGetValue(name, out var bd))
+            {
+                var tmp = new Model.CadDocument();
+                var subRep = new ImportReport();
+                foreach (var sub in ins.Block.Entities.ToList())
+                    Convert(sub, tmp, subRep, null, depth + 1);
+                if (tmp.Entities.Count == 0) return false;
+                foreach (var kv in subRep.Skipped)
+                    rep.Skipped[kv.Key] = rep.Skipped.TryGetValue(kv.Key, out var n0) ? n0 + kv.Value : kv.Value;
+                var bp = ins.Block.BlockEntity?.BasePoint ?? XYZ.Zero;
+                var toLocal = Mat2D.Translation(new Vec2(-bp.X, -bp.Y));
+                bd = new BlockDef(name);
+                foreach (var te in tmp.Entities)
+                {
+                    te.Transform(toLocal);
+                    te.GroupId = null;
+                    bd.Entities.Add(te);
+                }
+                foreach (var tl in tmp.Layers.Values)
+                    if (!doc.Layers.ContainsKey(tl.Name)) doc.Layers[tl.Name] = tl.Clone();
+                doc.Blocks[name] = bd;
+            }
+            var bp2 = ins.Block.BlockEntity?.BasePoint ?? XYZ.Zero;
+            var m = Mat2D.Then(Mat2D.Translation(new Vec2(bp2.X, bp2.Y)), m0);
+            var bref = new BlockRefEntity(bd, m) { Layer = layer, Color = color };
+            doc.Add(bref);
+            rep.Imported++;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     /// <summary>Blok yerleştirme dönüşümü: taban noktası → ölçek → dizi ofseti → dönme → konum → OCS.</summary>
     private static Mat2D InsertMatrix(AE.Insert ins, double offX, double offY)
@@ -614,18 +666,20 @@ public static class CadFileIO
             DxfR12Writer.Write(path, source, only);
             return;
         }
+        var items = (only ?? source.Entities).ToList();
+        bool hasExtras = items.Any(e => e.GroupId != null || e is BlockRefEntity);
         try
         {
-            SaveCore(path, source, only, withGroups: true, format);
+            SaveCore(path, source, items, withGroups: true, withBlocks: true, format);
         }
-        catch when (source.Entities.Any(e => e.GroupId != null))
+        catch when (hasExtras)
         {
-            // Grup yazımı desteklenmezse gruplar olmadan kaydet
-            SaveCore(path, source, only, withGroups: false, format);
+            // Grup / blok yazımı desteklenmezse gruplar olmadan ve bloklar patlatılmış olarak kaydet
+            SaveCore(path, source, items, withGroups: false, withBlocks: false, format);
         }
     }
 
-    private static void SaveCore(string path, Model.CadDocument source, IEnumerable<Entity>? only, bool withGroups, SaveFormat format)
+    private static void SaveCore(string path, Model.CadDocument source, IEnumerable<Entity>? only, bool withGroups, bool withBlocks, SaveFormat format)
     {
         var doc = new A.CadDocument(format.Version);
         // 2007 öncesi sürümler kod sayfası kullanır: Türkçe karakterler için Windows-1254
@@ -655,8 +709,23 @@ public static class CadFileIO
             layer.IsOn = li.Visible;
         }
 
-        foreach (var e in only ?? source.Entities)
+        var records = new Dictionary<BlockDef, AT.BlockRecord>();
+        foreach (var e0 in only ?? source.Entities)
         {
+            if (e0 is BlockRefEntity bref0)
+            {
+                if (withBlocks)
+                {
+                    var ins = MakeInsert(doc, bref0, records, 0);
+                    if (doc.Layers.TryGetValue(e0.Layer, out var il)) ins.Layer = il;
+                    ins.Color = e0.Color is { } ic ? ToAcadColor(ic) : A.Color.ByLayer;
+                    doc.Entities.Add(ins);
+                    AddGroupMember(groupMap, e0, ins);
+                    continue;
+                }
+            }
+            foreach (var e in e0 is BlockRefEntity ? BlockRefEntity.Flatten(new[] { e0 }) : new[] { e0 })
+            {
             var list = ToAcad(e).ToList();
             if (e is DimensionEntity && list.Count == 1 && list[0] is AE.Dimension adim)
             {
@@ -676,6 +745,7 @@ public static class CadFileIO
                 doc.Entities.Add(ae);
                 AddGroupMember(groupMap, e, ae);
             }
+            }
         }
 
         if (withGroups && doc.Groups != null)
@@ -684,6 +754,49 @@ public static class CadFileIO
 
         if (format.Ext == ".dwg") DwgWriter.Write(path, doc);
         else DxfWriter.Write(path, doc, format.Binary);
+    }
+
+    /// <summary>Blok referansını gerçek BLOCK + INSERT olarak yazar (tanım bir kez oluşturulur).</summary>
+    private static AE.Insert MakeInsert(A.CadDocument doc, BlockRefEntity br, Dictionary<BlockDef, AT.BlockRecord> records, int depth)
+    {
+        if (depth > 16) throw new InvalidOperationException("Blok iç içe geçme derinliği çok fazla.");
+        if (!records.TryGetValue(br.Def, out var rec))
+        {
+            string name = br.Def.Name.TrimStart('*');
+            if (name.Length == 0) name = "Blok";
+            string baseName = name;
+            for (int i = 2; doc.BlockRecords.TryGetValue(name, out _); i++) name = $"{baseName}_{i}";
+            rec = new AT.BlockRecord(name);
+            foreach (var ce in br.Def.Entities)
+            {
+                IEnumerable<AE.Entity> parts = ce switch
+                {
+                    BlockRefEntity inner => new AE.Entity[] { MakeInsert(doc, inner, records, depth + 1) },
+                    DimensionEntity dm => dm.Explode().SelectMany(ToAcad),
+                    _ => ToAcad(ce)
+                };
+                foreach (var ae in parts)
+                {
+                    if (doc.Layers.TryGetValue(string.IsNullOrEmpty(ce.Layer) ? "0" : ce.Layer, out var cl)) ae.Layer = cl;
+                    ae.Color = ce.Color is { } c ? ToAcadColor(c) : A.Color.ByLayer;
+                    rec.Entities.Add(ae);
+                }
+            }
+            doc.BlockRecords.Add(rec);
+            records[br.Def] = rec;
+        }
+        var m = br.M;
+        double sx = Math.Sqrt(m.A * m.A + m.C * m.C);
+        if (sx < 1e-12) sx = 1;
+        double sy = m.Determinant / sx;
+        return new AE.Insert(rec)
+        {
+            InsertPoint = new XYZ(m.E, m.F, 0),
+            XScale = sx,
+            YScale = sy,
+            ZScale = 1,
+            Rotation = GeoUtil.NormalizeAngle(Math.Atan2(m.C, m.A))
+        };
     }
 
     private static void AddGroupMember(Dictionary<string, List<AE.Entity>> map, Entity e, AE.Entity ae)

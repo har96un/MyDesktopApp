@@ -10,7 +10,7 @@ public static class Thumbnail
 {
     public static DrawingImage Render(IEnumerable<Entity> entities, double size = 96)
     {
-        var list = entities.ToList();
+        var list = BlockRefEntity.Flatten(entities).ToList();
         var box = BBox.Empty;
         foreach (var e in list) box.Add(e.Bounds());
         var group = new DrawingGroup();

@@ -61,6 +61,7 @@ public sealed partial class CadEditor
                 c.GroupId = group;
                 Doc.Add(c);
                 added.Add(c);
+                if (c is BlockRefEntity br && !Doc.Blocks.ContainsKey(br.Name)) Doc.Blocks[br.Name] = br.Def;
             }
             NotifyDocumentChanged();
             Doc.SetSelection(added);

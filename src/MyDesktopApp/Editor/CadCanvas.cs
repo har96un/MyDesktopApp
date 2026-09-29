@@ -331,6 +331,20 @@ public sealed class CadCanvas : FrameworkElement
             DrawHatch(dc, hatch, pen, brush, highlight: ReferenceEquals(pen, SelPen) || ReferenceEquals(pen, PreviewPen));
             return;
         }
+        if (e is BlockRefEntity br)
+        {
+            bool fixedPen = ReferenceEquals(pen, SelPen) || ReferenceEquals(pen, PreviewPen) || _editor == null;
+            foreach (var (child, layer, color) in br.DrawItems())
+            {
+                if (fixedPen) { DrawEntity(dc, child, pen, brush); continue; }
+                var doc = _editor!.Doc;
+                if (doc.Layers.TryGetValue(layer, out var li) && !li.Visible) continue;
+                var col = color ?? (li != null ? li.Color : doc.ResolveColor(br));
+                var cp = GetPen(col);
+                DrawEntity(dc, child, cp, cp.Brush);
+            }
+            return;
+        }
         if (e is CircleEntity c)
         {
             double r = c.Radius * _scale;

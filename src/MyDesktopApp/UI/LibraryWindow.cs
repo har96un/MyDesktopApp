@@ -141,8 +141,10 @@ public sealed class LibraryWindow : Window
                 {
                     var (ents, _) = LoadItem(it.Path);
                     var thumb = Thumbnail.Render(ents);
-                    var sp = SectionProperties.Compute(ents);
-                    string infoText = sp.IsValid ? $"A = {MyDesktopApp.Geometry.Vec2.Format(Math.Round(sp.Area, 2))}" : $"{ents.Count} nesne";
+                    var bb = MyDesktopApp.Geometry.BBox.Empty;
+                    foreach (var en in ents) bb.Add(en.Bounds());
+                    string infoText = bb.IsEmpty ? $"{ents.Count} nesne"
+                        : $"{MyDesktopApp.Geometry.Vec2.Format(Math.Round(bb.Width, 2))} × {MyDesktopApp.Geometry.Vec2.Format(Math.Round(bb.Height, 2))}";
                     Dispatcher.Invoke(() =>
                     {
                         if (it.Img != null) it.Img.Source = thumb;
@@ -230,7 +232,7 @@ public sealed class LibraryWindow : Window
             if (sel.Any(e => string.Equals(e.Layer, l.Name, StringComparison.OrdinalIgnoreCase)))
                 tmp.Layers[l.Name] = l.Clone();
         var clones = sel.Select(e => { var c = e.Clone(); c.GroupId = null; return c; }).ToList();
-        ProfileOps.MoveToOrigin(clones, RefPoint.Centroid);
+        ProfileOps.MoveToOrigin(clones, RefPoint.LowerLeft);
         foreach (var c in clones) tmp.Add(c);
         try
         {

@@ -133,6 +133,9 @@ public static class DxfR12Writer
     {
         switch (e)
         {
+            case BlockRefEntity br:
+                foreach (var x in br.Explode().SelectMany(Flatten)) yield return x;
+                break;
             case DimensionEntity d:
                 foreach (var x in d.Explode().SelectMany(Flatten)) yield return x;
                 break;

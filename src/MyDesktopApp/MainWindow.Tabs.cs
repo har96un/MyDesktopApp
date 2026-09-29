@@ -48,6 +48,7 @@ public partial class MainWindow
             UpdateTitle();
             RebuildLayerPanel();
             if (!PropsPanel.IsKeyboardFocusWithin) BuildPropertiesPanel();
+            UpdateRibbonState();
         };
         t.Doc.SelectionChanged += (_, _) => { if (t == _active) UpdatePanel(); };
         ApplySettingsTo(t);

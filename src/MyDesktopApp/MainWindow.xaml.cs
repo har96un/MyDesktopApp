@@ -23,6 +23,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        BuildRibbon();
         DrawArea.CursorMoved += p => CoordText.Text = $"{Vec2.Format(p.X),12}, {Vec2.Format(p.Y),12}";
 
         var first = CreateTab();
@@ -172,8 +173,9 @@ public partial class MainWindow : Window
         {
             var all = _doc.Extents();
             SelectionInfo.Text = $"Seçim yok. Toplam {_doc.Entities.Count} nesne.\n" +
-                                 (all.IsEmpty ? "" : $"Çizim sınırı:\n  Min {Vec2.Format(all.Min)}\n  Max {Vec2.Format(all.Max)}");
-            SectionInfo.Text = "Kesit özellikleri için kapalı profil çizgilerini seçin.";
+                                 (all.IsEmpty ? "" : $"Çizim sınırı:\n  Min {Vec2.Format(all.Min)}\n  Max {Vec2.Format(all.Max)}\n" +
+                                                     $"Genişlik {Vec2.Format(all.Width)}  Yükseklik {Vec2.Format(all.Height)}");
+            UpdateRibbonState();
             return;
         }
 
@@ -189,19 +191,7 @@ public partial class MainWindow : Window
                 : "") +
             "\nKatman: " + string.Join(", ", sel.Select(e => e.Layer).Distinct());
 
-        if (sel.Count > 20000)
-        {
-            SectionInfo.Text = "Seçim çok büyük; MP komutunu kullanın.";
-            return;
-        }
-        var sp = SectionProperties.Compute(sel);
-        if (!sp.IsValid)
-        {
-            SectionInfo.Text = "Kapalı kesit bulunamadı." +
-                               (sp.OpenChains > 0 ? $"\n{sp.OpenChains} açık zincir var (uçlar birleşmiyor)." : "");
-            return;
-        }
-        SectionInfo.Text = string.Join("\n", CadEditor.FormatSection(sp, b));
+        UpdateRibbonState();
     }
 
     private static readonly (string Name, EntColor C)[] Palette =
@@ -214,6 +204,7 @@ public partial class MainWindow : Window
 
     private void RebuildLayerPanel(bool force = false)
     {
+        UpdateLayerCombos();
         var layers = _doc.Layers.Values.OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase).ToList();
         string sig = _doc.CurrentLayer + "#" + string.Join("|", layers.Select(l => $"{l.Name}:{l.Color}:{l.Visible}"));
         if (!force && LayerPanel.Tag is string old && old == sig) return;

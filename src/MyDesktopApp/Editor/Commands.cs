@@ -44,7 +44,6 @@ public sealed partial class CadEditor
 
         // Profil / koordinat
         Reg("ORIGIN", "Seçimin referans noktasını 0,0'a taşır", CmdOrigin, "OR", "SIFIR", "00");
-        Reg("ORIGINCENTROID", "Ağırlık merkezini 0,0'a taşır", () => OriginPreset("Agirlik"), "OC");
         Reg("ORIGINLOWERLEFT", "Sol alt köşeyi 0,0'a taşır", () => OriginPreset("SolAlt"), "OLL");
         Reg("ORIGINCENTER", "Sınır kutusu merkezini 0,0'a taşır", () => OriginPreset("Merkez"), "OBC");
         Reg("ROT90", "0,0 etrafında +90° döndürür", () => QuickTransform(Mat2D.Rotation(Math.PI / 2, Vec2.Zero), "+90°"), "R90");
@@ -53,8 +52,6 @@ public sealed partial class CadEditor
         Reg("MIRRORX", "X eksenine göre aynalar (y → -y)", () => QuickTransform(Mat2D.Mirror(Vec2.Zero, Vec2.UnitX), "X ekseni aynası"), "MX");
         Reg("MIRRORY", "Y eksenine göre aynalar (x → -x)", () => QuickTransform(Mat2D.Mirror(Vec2.Zero, Vec2.UnitY), "Y ekseni aynası"), "MY");
         Reg("ALIGN", "İki nokta: 1. nokta 0,0'a, 2. nokta +X yönüne", CmdAlign, "AL", "HIZALA");
-        Reg("PRINCIPAL", "Kesiti asal eksenlerine göre hizalar", CmdPrincipal, "ASAL");
-        Reg("MASSPROP", "Kesit özelliklerini (alan, ağırlık merkezi, atalet) yazar", CmdMassProp, "MP", "KESIT");
 
         // Sorgu / görünüm
         Reg("DIST", "İki nokta arası mesafe", CmdDist, "DI", "OLC");
@@ -67,6 +64,7 @@ public sealed partial class CadEditor
         Reg("HELP", "Komut listesi", CmdHelp, "YARDIM", "?");
         RegisterDimCommands();
         RegisterModifyCommands();
+        RegisterBlockCommands();
         Reg("AUDIT", "Çizimi denetler: şüpheli nesneleri (çok uzak, çok büyük, sıfır boylu, kopya) bulur", () => { AuditRequested?.Invoke(); return Task.CompletedTask; }, "DENETLE");
     }
 
@@ -502,9 +500,15 @@ public sealed partial class CadEditor
         var sel = await GetSelection();
         var polys = sel.OfType<PolylineEntity>().ToList();
         var dims = sel.OfType<DimensionEntity>().ToList();
-        if (polys.Count == 0 && dims.Count == 0) { Log("Seçimde patlatılabilecek polyline veya ölçü yok."); return; }
+        var refs = sel.OfType<BlockRefEntity>().ToList();
+        if (polys.Count == 0 && dims.Count == 0 && refs.Count == 0) { Log("Seçimde patlatılabilecek polyline, blok veya ölçü yok."); return; }
         Doc.SaveUndo();
         int made = 0;
+        foreach (var br in refs)
+        {
+            foreach (var ce in br.Explode()) { Doc.Add(ce); made++; }
+        }
+        Doc.Remove(refs);
         foreach (var dm in dims)
         {
             foreach (var pe in dm.Explode()) { Doc.Add(pe); made++; }
@@ -530,7 +534,7 @@ public sealed partial class CadEditor
         Doc.Remove(polys);
         NotifyDocumentChanged();
         Doc.RaiseSelectionChanged();
-        Log($"  {polys.Count + dims.Count} nesne → {made} parça.");
+        Log($"  {polys.Count + dims.Count + refs.Count} nesne → {made} parça.");
     }
 
     private double _lastOffset = 1;
@@ -819,25 +823,18 @@ public sealed partial class CadEditor
             case "SolUst": return new Vec2(b.MinX, b.MaxY);
             case "SagUst": return new Vec2(b.MaxX, b.MaxY);
             case "Merkez": return b.Center;
-            case "Agirlik":
-                {
-                    var sp = SectionProperties.Compute(sel);
-                    if (sp.IsValid) return sp.Centroid;
-                    Log("  Kapalı kesit bulunamadı; sınır kutusu merkezi kullanılıyor.");
-                    return b.Center;
-                }
         }
         return null;
     }
 
-    private static readonly string[] OriginKeywords = { "SolAlt", "SagAlt", "SolUst", "SagUst", "Merkez", "Agirlik" };
+    private static readonly string[] OriginKeywords = { "SolAlt", "SagAlt", "SolUst", "SagUst", "Merkez" };
 
     private async Task CmdOrigin()
     {
         var sel = await GetSelection();
         var r = await GetInput(new PointRequest
         {
-            Prompt = "0,0'a gelecek nokta (tıklayın) veya seçenek <Agirlik>",
+            Prompt = "0,0'a gelecek nokta (tıklayın) veya seçenek <SolAlt>",
             Keywords = OriginKeywords,
             AllowEnter = true,
             Preview = c => Transformed(sel, Mat2D.Translation(-c))
@@ -846,7 +843,7 @@ public sealed partial class CadEditor
         {
             InputType.Point => r.Point,
             InputType.Keyword => ReferencePoint(sel, r.Text),
-            InputType.Enter => ReferencePoint(sel, "Agirlik"),
+            InputType.Enter => ReferencePoint(sel, "SolAlt"),
             _ => null
         };
         if (refPt is not { } p) return;
@@ -893,46 +890,6 @@ public sealed partial class CadEditor
         ZoomExtents();
     }
 
-    private async Task CmdPrincipal()
-    {
-        var sel = await GetSelection();
-        var sp = SectionProperties.Compute(sel);
-        if (!sp.IsValid) { Log("Kapalı kesit bulunamadı."); return; }
-        var m = Mat2D.Rotation(-sp.PrincipalAngle, sp.Centroid);
-        ApplyTransform(sel, m);
-        Log($"  Asal eksenlere hizalandı ({F(GeoUtil.RadToDeg(-sp.PrincipalAngle))}°, ağırlık merkezi etrafında).");
-    }
-
-    private async Task CmdMassProp()
-    {
-        var sel = await GetSelection();
-        var sp = SectionProperties.Compute(sel);
-        if (!sp.IsValid)
-        {
-            Log("  Kapalı kesit bulunamadı." + (sp.OpenChains > 0 ? $" {sp.OpenChains} açık zincir var (uçlar birleşmiyor)." : ""));
-            return;
-        }
-        foreach (var line in FormatSection(sp, Doc.Extents(sel))) Log("  " + line);
-    }
-
-    public static IEnumerable<string> FormatSection(SectionResult sp, BBox b)
-    {
-        yield return $"Çevre sayısı: {sp.LoopCount} ({sp.HoleCount} boşluk){(sp.OpenChains > 0 ? $", {sp.OpenChains} açık zincir" : "")}";
-        yield return $"Alan A = {F(sp.Area)}";
-        yield return $"Çevre uzunluğu = {F(sp.Perimeter)}";
-        yield return $"Ağırlık merkezi = ({F(sp.Centroid)})";
-        yield return $"Ix = {F(sp.Ix)}   Iy = {F(sp.Iy)}   Ixy = {F(sp.Ixy)}";
-        yield return $"I1 = {F(sp.I1)}   I2 = {F(sp.I2)}   α = {F(GeoUtil.RadToDeg(sp.PrincipalAngle))}°";
-        if (!b.IsEmpty)
-        {
-            double cx = sp.Centroid.X, cy = sp.Centroid.Y;
-            double yTop = b.MaxY - cy, yBot = cy - b.MinY, xR = b.MaxX - cx, xL = cx - b.MinX;
-            if (yTop > 0 && yBot > 0 && xR > 0 && xL > 0)
-                yield return $"Wx = {F(sp.Ix / Math.Max(yTop, yBot))}   Wy = {F(sp.Iy / Math.Max(xR, xL))}";
-            yield return $"ix = {F(Math.Sqrt(Math.Abs(sp.Ix / sp.Area)))}   iy = {F(Math.Sqrt(Math.Abs(sp.Iy / sp.Area)))}";
-        }
-    }
-
     // ================================================================ Sorgu
 
     private async Task CmdDist()
@@ -963,6 +920,7 @@ public sealed partial class CadEditor
                 ArcEntity a => $"Yay: merkez {F(a.Center)}, R {F(a.Radius)}, {F(GeoUtil.RadToDeg(a.StartAngle))}° → {F(GeoUtil.RadToDeg(a.EndAngle))}°",
                 PolylineEntity p => $"Polyline: {p.Vertices.Count} köşe, {(p.Closed ? "kapalı" : "açık")}",
                 TextEntity t => $"Yazı: \"{t.Value}\" @ {F(t.Position)}, h {F(t.Height)}",
+                BlockRefEntity br => $"Blok: \"{br.Name}\" @ {F(br.InsertPoint)}, {F(GeoUtil.RadToDeg(br.RotationRad))}°, ölçek {F(br.ScaleFactor)}{(br.Mirrored ? ", aynalı" : "")}",
                 _ => e.TypeName
             };
             Log($"  [{e.Layer}] {s}");
@@ -984,6 +942,7 @@ public sealed partial class CadEditor
         Log("Buda (TR) / Uzat (EX): önceden seçim yapılırsa kenar olarak seçili nesneler, yoksa tüm nesneler kullanılır; parçaya tıklayın.");
         Log("Yuvarla (F) / Pah (CHA): iki çizgi ya da aynı polyline'ın komşu iki parçası. Y/M: yarıçap/mesafe, P: polyline'ın tüm köşeleri.");
         Log("Ölçü: DLI (doğrusal), DAL (paralel), DRA (yarıçap), DDI (çap), DAN (açı). Tarama: H, kapalı alanın içine tıklayın.");
+        Log("Blok: B ile seçimden blok oluşturun, I ile ekleyin, X ile patlatın. Referans: BR → sınır kutusunun 9 noktasından birini 0,0'a taşır.");
         Log("Sağ tık (komut yokken): bağlam menüsü. Ctrl+L: profil kütüphanesi, Ctrl+P: PDF raporu. Kısa ad/kısayol: Araçlar → Ayarlar.");
         return Task.CompletedTask;
     }
