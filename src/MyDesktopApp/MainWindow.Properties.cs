@@ -67,7 +67,15 @@ public partial class MainWindow
             tb.KeyDown += (_, e) =>
             {
                 if (e.Key == Key.Enter) { e.Handled = true; Commit(); InputBox.Focus(); }
-                else if (e.Key == Key.Escape) { tb.Text = value; e.Handled = true; InputBox.Focus(); }
+                else if (e.Key == Key.Escape)
+                {
+                    // Düzenleme varsa geri al; yoksa normal Esc gibi davran (seçimi bırak)
+                    bool edited = tb.Text != value;
+                    tb.Text = value;
+                    e.Handled = true;
+                    InputBox.Focus();
+                    if (!edited) { done = true; _editor.Cancel(); }
+                }
             };
             tb.LostKeyboardFocus += (_, _) => Commit();
         }

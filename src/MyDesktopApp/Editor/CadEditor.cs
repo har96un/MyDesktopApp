@@ -165,7 +165,10 @@ public sealed partial class CadEditor
         Log($"Komut: {info.Name}");
         _runningName = info.Name;
         var task = ExecuteAsync(info);
-        _running = task;
+        // Hiç beklemeden (senkron) biten komutlarda ExecuteAsync'in finally bloğu _running'i zaten
+        // temizlemiştir; burada tamamlanmış görevi atamak düzenleyiciyi "meşgul" bırakıyordu
+        // (Esc seçimi bırakmıyor, sağ tık menüsü ve özellik düzenleme çalışmıyordu).
+        if (!task.IsCompleted) _running = task;
         StateChanged?.Invoke();
         await task;
     }
@@ -204,17 +207,23 @@ public sealed partial class CadEditor
     /// <summary>Esc: çalışan komutu iptal eder veya seçimi temizler.</summary>
     public void Cancel()
     {
+        // Yarım kalmış pencere seçimi de seçim de aynı Esc ile temizlenir
+        // (eskiden ilk Esc yalnızca pencereyi iptal ediyordu, seçim ikinci Esc'e kalıyordu).
         if (WindowStart != null)
         {
             WindowStart = null;
+            _windowDownScreen = null;
+            _windowDragged = false;
             OverlayChanged?.Invoke();
-            return;
         }
         if (_pending != null)
         {
+            bool selecting = Mode == InputMode.Selection;
             var p = _pending;
             _pending = null;
             p.TrySetCanceled();
+            // Komut nesne seçimi beklerken iptal edildiyse o ana kadar seçilenleri de bırak
+            if (selecting) Doc.ClearSelection();
             return;
         }
         if (_running == null) Doc.ClearSelection();
@@ -524,6 +533,13 @@ public sealed partial class CadEditor
         var box = BBox.FromPoints(start, end);
         bool crossing = end.X < start.X;
         var found = Doc.ExpandGroups(Doc.VisibleEntities.Where(e => crossing ? e.CrossesWindow(box) : e.InsideWindow(box))).ToList();
+        // Boş alana tıklama / boş pencere: seçimi temizle (Shift'siz)
+        if (found.Count == 0 && !shift && Mode == InputMode.Idle)
+        {
+            Doc.ClearSelection();
+            OverlayChanged?.Invoke();
+            return;
+        }
         foreach (var e in found)
         {
             if (shift) Doc.Selection.Remove(e);
