@@ -69,6 +69,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $v = "${{ steps.ver.outputs.version }}"
-          gh release delete latest --yes --cleanup-tag 2>$null
+          # Değişmez (immutable) sürümler etiket yeniden kullanımına izin vermez: her derlemeye yeni etiket
+          $tag = "v$v-b${{ github.run_number }}"
           $notes = "Profil CAD $v`n`nOtomatik derleme: ${{ github.sha }}`n`nKurulum: ProfilCAD-Setup.exe dosyasını indirip çalıştırın."
-          gh release create latest output/ProfilCAD-Setup.exe --title "Profil CAD $v" --notes "$notes" --target ${{ github.sha }}
+          gh release create $tag output/ProfilCAD-Setup.exe --title "Profil CAD $v" --notes "$notes" --target ${{ github.sha }} --latest
