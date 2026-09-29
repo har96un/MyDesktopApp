@@ -178,7 +178,7 @@ public sealed class CadDocument
     public BBox Extents(IEnumerable<Entity>? items = null)
     {
         var b = BBox.Empty;
-        foreach (var e in items ?? VisibleEntities) b.Add(e.Bounds());
+        foreach (var e in items ?? VisibleEntities) b.Add(BoundsOf(e));
         return b;
     }
 
@@ -244,6 +244,30 @@ public sealed class CadDocument
         }
     }
 
+    /// <summary>
+    /// Arka planda kaydetmek için belgenin hızlı kopyası (nesne klonları ucuzdur: polyline köşeleri
+    /// yazma-anında-kopyala ile paylaşılır).
+    /// </summary>
+    public CadDocument CopyForSave()
+    {
+        var d = new CadDocument
+        {
+            Entities = Entities.Select(e => e.Clone()).ToList(),
+            Layers = Layers.ToDictionary(k => k.Key, v => v.Value.Clone(), StringComparer.OrdinalIgnoreCase),
+            Blocks = new Dictionary<string, BlockDef>(Blocks, StringComparer.OrdinalIgnoreCase),
+            FilePath = FilePath,
+            CurrentLayer = CurrentLayer,
+            SaveFormatId = SaveFormatId,
+            DimTextHeight = DimTextHeight,
+            DimArrowSize = DimArrowSize,
+            DimDecimals = DimDecimals,
+            HatchPattern = HatchPattern,
+            HatchScale = HatchScale,
+            HatchAngle = HatchAngle
+        };
+        return d;
+    }
+
     // ================================================================ Bloklar
 
     public string UniqueBlockName(string baseName)
@@ -288,6 +312,27 @@ public sealed class CadDocument
         if (string.Equals(CurrentLayer, name, StringComparison.OrdinalIgnoreCase)) CurrentLayer = "0";
     }
 
-    public void RaiseChanged() => Changed?.Invoke(this, EventArgs.Empty);
+    public void RaiseChanged()
+    {
+        _bounds.Clear();
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    // ================================================================ Sınır kutusu önbelleği
+
+    // Büyük çizimlerde her çizim/yakalama/tıklamada tüm nesnelerin sınır kutusunu yeniden
+    // hesaplamak yüzlerce ms sürüyordu. Belge değiştiğinde (RaiseChanged) önbellek temizlenir.
+    private readonly Dictionary<Entity, BBox> _bounds = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>Nesnenin (önbellekli) sınır kutusu.</summary>
+    public BBox BoundsOf(Entity e)
+    {
+        if (!_bounds.TryGetValue(e, out var b))
+        {
+            b = e.Bounds();
+            _bounds[e] = b;
+        }
+        return b;
+    }
     public void RaiseSelectionChanged() => SelectionChanged?.Invoke(this, EventArgs.Empty);
 }

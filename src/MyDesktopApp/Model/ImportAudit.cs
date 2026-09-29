@@ -94,7 +94,7 @@ public static class ImportAudit
                 LineEntity l => l.Length <= tol,
                 CircleEntity c => c.Radius <= tol,
                 ArcEntity a => a.Radius <= tol,
-                PolylineEntity p => p.Vertices.Count < 2 || (b.Width <= tol && b.Height <= tol),
+                PolylineEntity p => p.VertexView.Count < 2 || (b.Width <= tol && b.Height <= tol),
                 _ => false
             };
             if (degenerate) { Flag(AuditReason.Degenerate, e); continue; }
@@ -154,7 +154,7 @@ public static class ImportAudit
             case PolylineEntity p:
                 {
                     var sb = new StringBuilder(p.Closed ? "PC" : "P");
-                    foreach (var v in p.Vertices) sb.Append(P(v.P, q)).Append(':').Append(Math.Round(v.Bulge, 6).ToString(CultureInfo.InvariantCulture)).Append(';');
+                    foreach (var v in p.VertexView) sb.Append(P(v.P, q)).Append(':').Append(Math.Round(v.Bulge, 6).ToString(CultureInfo.InvariantCulture)).Append(';');
                     return sb.ToString();
                 }
         }

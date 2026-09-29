@@ -198,11 +198,21 @@ public static class CadFileIO
 
             case AE.Spline sp:
                 {
-                    if (sp.TryPolygonalVertexes(256, out var list) && list.Count >= 2)
+                    // Kendi (hızlı) NURBS değerlendirmemiz; veri tutarsızsa kütüphaneye düş.
+                    // (Kütüphane işlevi büyük çizimlerde açılış süresinin 2/3'ünü alıyordu.)
+                    var fast = EvalSpline(sp, 256);
+                    List<XYZ>? list = null;
+                    if (fast != null || (sp.TryPolygonalVertexes(256, out list) && list.Count >= 2))
                     {
-                        var pts = list.Select(V).ToList();
+                        var pts = fast ?? list!.Select(V).ToList();
                         bool closed = pts[0].IsClose(pts[^1], 1e-9);
-                        if (closed) pts.RemoveAt(pts.Count - 1);
+                        // Sabit 256 nokta yerine eğriliğe göre sadeleştir (boyutun ~1/5000'i sapma):
+                        // büyük çizimlerde spline'lar milyonlarca gereksiz köşe üretiyordu.
+                        var sb = BBox.Empty;
+                        foreach (var q in pts) sb.Add(q);
+                        double tol = Math.Max(Math.Max(sb.Width, sb.Height) * 2e-4, 1e-9);
+                        pts = GeoUtil.Simplify(pts, tol);
+                        if (closed && pts.Count > 1 && pts[0].IsClose(pts[^1], 1e-9)) pts.RemoveAt(pts.Count - 1);
                         Add(new PolylineEntity(pts, closed));
                     }
                     else if (sp.FitPoints.Count >= 2)
@@ -358,6 +368,73 @@ public static class CadFileIO
 
     private static Vec2 V(XYZ p) => new(p.X, p.Y);
 
+    /// <summary>NURBS eğrisini de Boor algoritmasıyla eşit parametre aralıklarında değerlendirir (XY düzlemi).</summary>
+    internal static List<Vec2>? EvalSpline(AE.Spline sp, int samples)
+    {
+        try
+        {
+            int p = sp.Degree;
+            var cps = sp.ControlPoints;
+            var U = sp.Knots;
+            int n = cps.Count;
+            if (p < 1 || n < p + 1 || U.Count != n + p + 1) return null;
+            var W = sp.Weights;
+            bool rational = W != null && W.Count == n;
+            double t0 = U[p], t1 = U[n];
+            if (!(t1 > t0)) return null;
+            var dx = new double[p + 1];
+            var dy = new double[p + 1];
+            var dw = new double[p + 1];
+            var res = new List<Vec2>(samples + 1);
+            for (int s = 0; s <= samples; s++)
+            {
+                double t = s == samples ? t1 : t0 + (t1 - t0) * s / samples;
+                // Düğüm aralığı: U[k] <= t < U[k+1], k ∈ [p, n-1]
+                int k;
+                if (t >= U[n]) k = n - 1;
+                else
+                {
+                    int lo = p, hi = n;
+                    while (hi - lo > 1)
+                    {
+                        int mid = (lo + hi) / 2;
+                        if (t < U[mid]) hi = mid; else lo = mid;
+                    }
+                    k = lo;
+                }
+                for (int j = 0; j <= p; j++)
+                {
+                    int i = k - p + j;
+                    double w = rational ? W![i] : 1.0;
+                    dx[j] = cps[i].X * w;
+                    dy[j] = cps[i].Y * w;
+                    dw[j] = w;
+                }
+                for (int r = 1; r <= p; r++)
+                {
+                    for (int j = p; j >= r; j--)
+                    {
+                        int i = k - p + j;
+                        double den = U[i + p - r + 1] - U[i];
+                        double a = den == 0 ? 0 : (t - U[i]) / den;
+                        dx[j] = (1 - a) * dx[j - 1] + a * dx[j];
+                        dy[j] = (1 - a) * dy[j - 1] + a * dy[j];
+                        dw[j] = (1 - a) * dw[j - 1] + a * dw[j];
+                    }
+                }
+                if (Math.Abs(dw[p]) < 1e-300) return null;
+                var q = new Vec2(dx[p] / dw[p], dy[p] / dw[p]);
+                if (double.IsNaN(q.X) || double.IsNaN(q.Y)) return null;
+                res.Add(q);
+            }
+            return res.Count >= 2 ? res : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>
     /// Adlı, dizisiz ve eşit ölçekli üst düzey blokları blok referansı olarak korur (tanım bir kez oluşturulur).
     /// Uygun değilse false döner ve blok patlatılarak alınır.
@@ -438,7 +515,7 @@ public static class CadFileIO
         {
             case CircleEntity:
             case ArcEntity:
-            case PolylineEntity when ((PolylineEntity)e).Vertices.Any(v => Math.Abs(v.Bulge) > 1e-12):
+            case PolylineEntity when ((PolylineEntity)e).VertexView.Any(v => Math.Abs(v.Bulge) > 1e-12):
                 {
                     var pts = e.ToPoints();
                     bool closed = e.IsClosed;
@@ -860,7 +937,7 @@ public static class CadFileIO
             case PolylineEntity pl:
                 {
                     var lw = new AE.LwPolyline();
-                    foreach (var v in pl.Vertices)
+                    foreach (var v in pl.VertexView)
                         lw.Vertices.Add(new AE.LwPolyline.Vertex(new XY(v.P.X, v.P.Y)) { Bulge = v.Bulge });
                     lw.IsClosed = pl.Closed;
                     yield return lw;

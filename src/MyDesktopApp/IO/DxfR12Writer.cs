@@ -108,7 +108,7 @@ public static class DxfR12Writer
                 case PolylineEntity p:
                     Common("POLYLINE");
                     I(66, 1); D(10, 0); D(20, 0); D(30, 0); I(70, p.Closed ? 1 : 0);
-                    foreach (var v in p.Vertices)
+                    foreach (var v in p.VertexView)
                     {
                         G(0, "VERTEX"); G(8, LayerName(e.Layer));
                         D(10, v.P.X); D(20, v.P.Y); D(30, 0);

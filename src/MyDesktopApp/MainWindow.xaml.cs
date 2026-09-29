@@ -532,7 +532,9 @@ public partial class MainWindow : Window
         else fmt = CadFileIO.DefaultFor(path, _doc.SaveFormatId ?? _settings.LastSaveFormat);
         try
         {
-            CadFileIO.Save(path, _doc, null, fmt);
+            Mouse.OverrideCursor = Cursors.Wait;
+            try { CadFileIO.Save(path, _doc, null, fmt); }
+            finally { Mouse.OverrideCursor = null; }
             _doc.FilePath = path;
             _doc.IsModified = false;
             _doc.SaveFormatId = fmt.Id;

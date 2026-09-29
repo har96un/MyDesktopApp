@@ -122,26 +122,48 @@ public partial class MainWindow
         if (report && bad.Count > 0) AppendHistory("Geçersiz kısa adlar yok sayıldı: " + string.Join(", ", bad));
     }
 
-    private void Autosave()
+    private bool _autosaving;
+
+    /// <summary>
+    /// Otomatik kayıt arka planda yapılır (büyük çizimlerde kayıt birkaç saniye sürüyor ve
+    /// arayüzü donduruyordu). Belgenin anlık kopyası alınır, yazma ayrı iş parçacığında yapılır.
+    /// </summary>
+    private async void Autosave()
     {
+        if (_autosaving) return;
+        _autosaving = true;
         int n = 0;
-        foreach (var t in _tabs)
+        try
         {
-            if (!t.Doc.IsModified || t.Doc.Entities.Count == 0) continue;
-            try
+            foreach (var t in _tabs.ToList())
             {
-                Directory.CreateDirectory(AutosaveDir);
-                string file = AutosaveFile(t);
-                string tmp = file + ".tmp.dxf";
-                CadFileIO.Save(tmp, t.Doc);
-                File.Move(tmp, file, overwrite: true);
-                File.WriteAllText(AutosaveInfo(file), t.Doc.FilePath ?? "");
-                n++;
+                if (!t.Doc.IsModified || t.Doc.Entities.Count == 0) continue;
+                try
+                {
+                    var copy = t.Doc.CopyForSave();
+                    string file = AutosaveFile(t);
+                    string orig = t.Doc.FilePath ?? "";
+                    await Task.Run(() =>
+                    {
+                        Directory.CreateDirectory(AutosaveDir);
+                        string tmp = file + ".tmp.dxf";
+                        CadFileIO.Save(tmp, copy);
+                        File.Move(tmp, file, overwrite: true);
+                        File.WriteAllText(AutosaveInfo(file), orig);
+                    });
+                    // Kayıt sürerken sekme kapatıldıysa dosyayı bırakma
+                    if (!_tabs.Contains(t)) DeleteAutosaveFiles(file);
+                    else n++;
+                }
+                catch (Exception ex)
+                {
+                    AppendHistory($"Otomatik kayıt başarısız ({t.Name}): " + ex.Message);
+                }
             }
-            catch (Exception ex)
-            {
-                AppendHistory($"Otomatik kayıt başarısız ({t.Name}): " + ex.Message);
-            }
+        }
+        finally
+        {
+            _autosaving = false;
         }
         if (n > 0) StatusText.Text = $"Otomatik kaydedildi {DateTime.Now:HH:mm} ({n} çizim)";
     }
@@ -370,12 +392,16 @@ public partial class MainWindow
         RunImportAudit(_doc.Entities.ToList(), _active?.Name ?? "Çizim", manual: true);
 
     /// <summary>Şüpheli nesneleri bulur ve kullanıcıya ne yapılacağını sorar.</summary>
-    private void RunImportAudit(List<Entity> items, string source, bool manual = false)
+    private async void RunImportAudit(List<Entity> items, string source, bool manual = false)
     {
         if (!manual && !_settings.AuditOnOpen) return;
         AuditResult res;
-        try { res = ImportAudit.Analyze(items); }
+        // Büyük çizimlerde analiz arka planda (arayüz donmasın)
+        var snapshot = items.ToList();
+        var docAtStart = _doc;
+        try { res = await Task.Run(() => ImportAudit.Analyze(snapshot)); }
         catch (Exception ex) { AppendHistory("Denetim yapılamadı: " + ex.Message); return; }
+        if (!ReferenceEquals(docAtStart, _doc)) return;   // bu arada sekme değiştiyse sorma
         if (res.Total == 0)
         {
             if (manual) AppendHistory("Denetim: şüpheli nesne bulunamadı.");

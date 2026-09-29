@@ -217,7 +217,25 @@ public struct PolyVertex
 
 public sealed class PolylineEntity : Entity
 {
-    public List<PolyVertex> Vertices { get; private set; } = new();
+    // Köşe listesi yazma-anında-kopyala (copy-on-write) ile paylaşılır: Clone() ve geri alma
+    // anlık görüntüleri listeyi kopyalamaz; değişiklik yapılacağı an kopyalanır.
+    // (Büyük çizimlerde her geri alma adımı milyonlarca köşeyi kopyalıyordu.)
+    private List<PolyVertex> _v = new();
+    private bool _shared;
+
+    /// <summary>Değiştirilebilir köşe listesi (paylaşılıyorsa önce kopyalanır).</summary>
+    public List<PolyVertex> Vertices
+    {
+        get
+        {
+            if (_shared) { _v = new List<PolyVertex>(_v); _shared = false; }
+            return _v;
+        }
+    }
+
+    /// <summary>Yalnızca okuma için köşeler (kopyalama yapmaz).</summary>
+    public IReadOnlyList<PolyVertex> VertexView => _v;
+
     public bool Closed { get; set; }
 
     public PolylineEntity() { }
@@ -231,12 +249,12 @@ public sealed class PolylineEntity : Entity
     public override string TypeName => "Polyline";
     public override bool IsClosed => Closed;
 
-    public int SegmentCount => Closed ? Vertices.Count : Math.Max(0, Vertices.Count - 1);
+    public int SegmentCount => Closed ? _v.Count : Math.Max(0, _v.Count - 1);
 
     public Prim Segment(int i)
     {
-        var v1 = Vertices[i];
-        var v2 = Vertices[(i + 1) % Vertices.Count];
+        var v1 = _v[i];
+        var v2 = _v[(i + 1) % _v.Count];
         if (Math.Abs(v1.Bulge) < 1e-12 || v1.P.IsClose(v2.P, 1e-12))
             return new LinePrim(v1.P, v2.P);
         GeoUtil.BulgeArc(v1.P, v2.P, v1.Bulge, out var c, out var r, out var sa, out var ea);
@@ -251,23 +269,25 @@ public sealed class PolylineEntity : Entity
     public override void Transform(Mat2D m)
     {
         bool mir = m.IsMirroring;
-        for (int i = 0; i < Vertices.Count; i++)
-        {
-            var v = Vertices[i];
-            Vertices[i] = new PolyVertex(m.Apply(v.P), mir ? -v.Bulge : v.Bulge);
-        }
+        // Paylaşılan listeyi değiştirmek yerine yeni liste üret (tek geçiş)
+        var src = _v;
+        var dst = new List<PolyVertex>(src.Count);
+        foreach (var v in src) dst.Add(new PolyVertex(m.Apply(v.P), mir ? -v.Bulge : v.Bulge));
+        _v = dst;
+        _shared = false;
     }
 
     public override Entity Clone()
     {
         var c = (PolylineEntity)MemberwiseClone();
-        c.Vertices = new List<PolyVertex>(Vertices);
+        _shared = true;
+        c._shared = true;
         return c;
     }
 
     public override IEnumerable<SnapPoint> SnapPoints()
     {
-        foreach (var v in Vertices) yield return new(v.P, SnapKind.Endpoint);
+        foreach (var v in _v) yield return new(v.P, SnapKind.Endpoint);
         for (int i = 0; i < SegmentCount; i++)
         {
             var s = Segment(i);

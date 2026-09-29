@@ -918,7 +918,7 @@ public sealed partial class CadEditor
                 LineEntity l => $"Çizgi: {F(l.Start)} → {F(l.End)}, uzunluk {F(l.Length)}",
                 CircleEntity c => $"Daire: merkez {F(c.Center)}, R {F(c.Radius)}",
                 ArcEntity a => $"Yay: merkez {F(a.Center)}, R {F(a.Radius)}, {F(GeoUtil.RadToDeg(a.StartAngle))}° → {F(GeoUtil.RadToDeg(a.EndAngle))}°",
-                PolylineEntity p => $"Polyline: {p.Vertices.Count} köşe, {(p.Closed ? "kapalı" : "açık")}",
+                PolylineEntity p => $"Polyline: {p.VertexView.Count} köşe, {(p.Closed ? "kapalı" : "açık")}",
                 TextEntity t => $"Yazı: \"{t.Value}\" @ {F(t.Position)}, h {F(t.Height)}",
                 BlockRefEntity br => $"Blok: \"{br.Name}\" @ {F(br.InsertPoint)}, {F(GeoUtil.RadToDeg(br.RotationRad))}°, ölçek {F(br.ScaleFactor)}{(br.Mirrored ? ", aynalı" : "")}",
                 _ => e.TypeName

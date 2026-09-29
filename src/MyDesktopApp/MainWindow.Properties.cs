@@ -233,18 +233,18 @@ public partial class MainWindow
                         return s;
                     });
                     PropNum("Uzunluk", len, null);
-                    PropNum("Köşe sayısı", p.Vertices.Count, null);
-                    if (p.Vertices.Count == 0) break;
+                    PropNum("Köşe sayısı", p.VertexView.Count, null);
+                    if (p.VertexView.Count == 0) break;
                     if (_propVertexOwner != p) { _propVertex = 0; _propVertexOwner = p; }
-                    _propVertex = Math.Clamp(_propVertex, 0, p.Vertices.Count - 1);
-                    var idx = Enumerable.Range(1, p.Vertices.Count).Select(i => i.ToString(CultureInfo.InvariantCulture)).ToList();
+                    _propVertex = Math.Clamp(_propVertex, 0, p.VertexView.Count - 1);
+                    var idx = Enumerable.Range(1, p.VertexView.Count).Select(i => i.ToString(CultureInfo.InvariantCulture)).ToList();
                     PropCombo("Köşe", idx, (_propVertex + 1).ToString(CultureInfo.InvariantCulture), s =>
                     {
                         _propVertex = int.Parse(s, CultureInfo.InvariantCulture) - 1;
                         BuildPropertiesPanel();
                     });
                     int k = _propVertex;
-                    var vx = p.Vertices[k];
+                    var vx = p.VertexView[k];
                     PropNum("  X", vx.P.X, v => EditSelection(() => p.Vertices[k] = new PolyVertex(new Vec2(v, p.Vertices[k].P.Y), p.Vertices[k].Bulge)));
                     PropNum("  Y", vx.P.Y, v => EditSelection(() => p.Vertices[k] = new PolyVertex(new Vec2(p.Vertices[k].P.X, v), p.Vertices[k].Bulge)));
                     PropNum("  Bulge", vx.Bulge, v => EditSelection(() => p.Vertices[k] = new PolyVertex(p.Vertices[k].P, v)));

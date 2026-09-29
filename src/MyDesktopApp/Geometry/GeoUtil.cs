@@ -132,6 +132,40 @@ public static class GeoUtil
         return inside;
     }
 
+    /// <summary>
+    /// Douglas–Peucker sadeleştirme: <paramref name="tol"/> sapmasını aşmadan gereksiz ara noktaları atar.
+    /// İlk ve son nokta korunur.
+    /// </summary>
+    public static List<Vec2> Simplify(IReadOnlyList<Vec2> pts, double tol)
+    {
+        int n = pts.Count;
+        if (n <= 2 || tol <= 0) return new List<Vec2>(pts);
+        var keep = new bool[n];
+        keep[0] = keep[n - 1] = true;
+        var stack = new Stack<(int, int)>();
+        stack.Push((0, n - 1));
+        while (stack.Count > 0)
+        {
+            var (i0, i1) = stack.Pop();
+            double best = -1;
+            int bi = -1;
+            for (int i = i0 + 1; i < i1; i++)
+            {
+                double d = DistPointSegment(pts[i], pts[i0], pts[i1]);
+                if (d > best) { best = d; bi = i; }
+            }
+            if (bi >= 0 && best > tol)
+            {
+                keep[bi] = true;
+                stack.Push((i0, bi));
+                stack.Push((bi, i1));
+            }
+        }
+        var res = new List<Vec2>();
+        for (int i = 0; i < n; i++) if (keep[i]) res.Add(pts[i]);
+        return res;
+    }
+
     public static double DegToRad(double d) => d * Math.PI / 180.0;
     public static double RadToDeg(double r) => r * 180.0 / Math.PI;
 }

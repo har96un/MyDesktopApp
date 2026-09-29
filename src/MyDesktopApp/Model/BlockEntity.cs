@@ -26,6 +26,7 @@ public sealed class BlockRefEntity : Entity
     public Mat2D M { get; private set; }
 
     private List<Entity>? _cache;
+    private List<BBox>? _cacheBounds;
 
     public BlockRefEntity(BlockDef def, Mat2D m)
     {
@@ -41,7 +42,7 @@ public sealed class BlockRefEntity : Entity
     public bool Mirrored => M.IsMirroring;
 
     /// <summary>Tanım değiştiğinde (yeniden tanımlama) önbelleği temizler.</summary>
-    public void Invalidate() => _cache = null;
+    public void Invalidate() { _cache = null; _cacheBounds = null; }
 
     /// <summary>Dönüşmüş alt nesneler (geometri önbelleği; katman/renk ayrıca çözülür).</summary>
     private List<Entity> Children()
@@ -64,7 +65,7 @@ public sealed class BlockRefEntity : Entity
         foreach (var c in Children())
         {
             var n = c.Clone();
-            if (n is BlockRefEntity nb) nb._cache = null;
+            if (n is BlockRefEntity nb) { nb._cache = null; nb._cacheBounds = null; }
             if (n.Layer == "0" || string.IsNullOrEmpty(n.Layer)) n.Layer = Layer;
             if (n.Color == null && Color != null) n.Color = Color;
             n.GroupId = GroupId;
@@ -72,13 +73,22 @@ public sealed class BlockRefEntity : Entity
         }
     }
 
-    /// <summary>Çizim için: alt nesneler ve görüntü katmanları (kopyalamadan).</summary>
-    public IEnumerable<(Entity Child, string Layer, EntColor? Color)> DrawItems()
+    /// <summary>Çizim için: alt nesneler, görüntü katmanları ve (önbellekli) sınır kutuları.</summary>
+    public IEnumerable<(Entity Child, string Layer, EntColor? Color, BBox Bounds)> DrawItems()
     {
-        foreach (var c in Children())
+        var ch = Children();
+        var cb = _cacheBounds;
+        if (cb == null || cb.Count != ch.Count)
         {
+            cb = new List<BBox>(ch.Count);
+            foreach (var c in ch) cb.Add(c.Bounds());
+            _cacheBounds = cb;
+        }
+        for (int i = 0; i < ch.Count; i++)
+        {
+            var c = ch[i];
             var layer = c.Layer == "0" || string.IsNullOrEmpty(c.Layer) ? Layer : c.Layer;
-            yield return (c, layer, c.Color ?? Color);
+            yield return (c, layer, c.Color ?? Color, cb[i]);
         }
     }
 
@@ -92,6 +102,7 @@ public sealed class BlockRefEntity : Entity
     {
         M = Mat2D.Then(M, m);
         _cache = null;
+        _cacheBounds = null;
     }
 
     public override IEnumerable<SnapPoint> SnapPoints()
@@ -104,7 +115,7 @@ public sealed class BlockRefEntity : Entity
     public override BBox Bounds()
     {
         var b = BBox.Empty;
-        foreach (var c in Children()) b.Add(c.Bounds());
+        foreach (var (_, _, _, cb) in DrawItems()) b.Add(cb);
         return b;
     }
 

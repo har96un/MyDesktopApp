@@ -89,7 +89,7 @@ public sealed partial class CadEditor
         double tol = PixelSize * 3;
         foreach (var e in Doc.VisibleEntities)
         {
-            var b = e.Bounds();
+            var b = Doc.BoundsOf(e);
             if (p.X < b.MinX - tol || p.X > b.MaxX + tol || p.Y < b.MinY - tol || p.Y > b.MaxY + tol) continue;
             foreach (var pr in e.Primitives())
             {

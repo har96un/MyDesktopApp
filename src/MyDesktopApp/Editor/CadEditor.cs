@@ -571,7 +571,7 @@ public sealed partial class CadEditor
         double bestD = tol;
         foreach (var e in Doc.VisibleEntities)
         {
-            var b = e.Bounds();
+            var b = Doc.BoundsOf(e);
             if (world.X < b.MinX - tol || world.X > b.MaxX + tol || world.Y < b.MinY - tol || world.Y > b.MaxY + tol) continue;
             double d = e.Distance(world);
             if (d <= bestD)
@@ -607,7 +607,7 @@ public sealed partial class CadEditor
         var near = new List<Entity>();
         foreach (var e in Doc.VisibleEntities)
         {
-            var b = e.Bounds();
+            var b = Doc.BoundsOf(e);
             if (world.X < b.MinX - tol || world.X > b.MaxX + tol || world.Y < b.MinY - tol || world.Y > b.MaxY + tol) continue;
             foreach (var sp in e.SnapPoints()) Consider(sp);
             if (e.Distance(world) < tol) near.Add(e);
