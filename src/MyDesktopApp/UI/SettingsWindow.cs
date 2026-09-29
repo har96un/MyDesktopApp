@@ -60,6 +60,7 @@ public sealed class SettingsWindow : Window
     private readonly TextBox _author = Box();
     private readonly TextBox _library = Box();
     private readonly TextBox _autosave = Box();
+    private readonly ComboBox _saveFmt = new() { MinWidth = 260 };
     private readonly TextBox _dimText = Box();
     private readonly TextBox _dimArrow = Box();
     private readonly TextBox _dimDec = Box();
@@ -145,6 +146,9 @@ public sealed class SettingsWindow : Window
             if (dlg.ShowDialog(this) == true) _library.Text = dlg.FolderName;
         }));
         p.Children.Add(Field("Otomatik kayıt aralığı (dk):", _autosave, hint: "0 = kapalı"));
+        foreach (var f in MyDesktopApp.IO.CadFileIO.Formats) _saveFmt.Items.Add(f.Label + " (" + f.Ext + ")");
+        _saveFmt.SelectedIndex = Math.Max(0, Array.FindIndex(MyDesktopApp.IO.CadFileIO.Formats, f => f.Id == _s.LastSaveFormat));
+        p.Children.Add(Field("Varsayılan kayıt biçimi:", _saveFmt));
         p.Children.Add(new TextBlock
         {
             Text = "Otomatik kayıt, kaydedilmemiş değişiklikleri %AppData%\\ProfilCAD\\autosave klasörüne yazar. " +
@@ -268,6 +272,7 @@ public sealed class SettingsWindow : Window
         _s.ReportAuthor = _author.Text.Trim();
         _s.LibraryFolder = _library.Text.Trim();
         _s.AutosaveMinutes = autosave;
+        _s.LastSaveFormat = MyDesktopApp.IO.CadFileIO.Formats[Math.Max(0, _saveFmt.SelectedIndex)].Id;
         _s.DimTextHeight = dt;
         _s.DimArrowSize = da;
         _s.DimDecimals = dd;

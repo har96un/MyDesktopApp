@@ -74,15 +74,41 @@ public sealed class CadCanvas : FrameworkElement
 
     private readonly System.Windows.Threading.DispatcherTimer _tickTimer = new() { Interval = TimeSpan.FromMilliseconds(100) };
 
+    private bool _tickHooked;
+
+    /// <summary>Tuvali bir düzenleyiciye bağlar (sekme değişiminde önceki bağlantı çözülür).</summary>
     public void Attach(CadEditor editor)
     {
+        if (_editor != null)
+        {
+            _editor.SceneChanged -= ScheduleRedraw;
+            _editor.OverlayChanged -= RedrawOverlay;
+        }
         _editor = editor;
-        _tickTimer.Tick += (_, _) => _editor?.Tick();
-        _tickTimer.Start();
+        if (!_tickHooked)
+        {
+            _tickTimer.Tick += (_, _) => _editor?.Tick();
+            _tickTimer.Start();
+            _tickHooked = true;
+        }
         editor.PixelSizeProvider = () => 1.0 / _scale;
         editor.ZoomExtentsAction = ZoomExtents;
         editor.SceneChanged += ScheduleRedraw;
         editor.OverlayChanged += RedrawOverlay;
+        RedrawAll();
+    }
+
+    /// <summary>Görünüm durumu (ölçek ve kaydırma); sekme başına saklanır.</summary>
+    public (double Scale, Point Offset) ViewState
+    {
+        get => (_scale, _offset);
+        set
+        {
+            _scale = value.Scale;
+            _offset = value.Offset;
+            _initialized = true;
+            RedrawAll();
+        }
     }
 
     private bool _redrawScheduled;

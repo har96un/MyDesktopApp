@@ -34,6 +34,10 @@ ve tekrar DWG/DXF olarak kaydetmektir.
 - **Toplu işlem:** Çok sayıda DWG/DXF'i asal eksene hizalar, döndürür, aynalar, ölçekler, 0,0'a taşır, DXF/DWG olarak kaydeder;
   isteğe bağlı her dosya için PDF raporu ve tüm kesitlerin özellik tablosu (CSV).
 - **PDF kesit raporu (Ctrl+P):** A4, firma logosu ve adı, ölçekli çizim, ağırlık merkezi ve asal eksenler, genişlik/yükseklik ölçüleri, özellik tablosu.
+- **Sekmeler:** Her DWG/DXF kendi sekmesinde açılır (çoklu seçimle ya da sürükle-bırakla birden fazla dosya). Ctrl+Tab sekmeler arası geçiş, Ctrl+W kapatır, orta tık da kapatır. Her sekmenin kendi geri alma geçmişi ve görünümü vardır.
+- **Kayıt sürümleri:** DXF 2018 / 2013 / 2010 / 2007 / 2004 / 2000 / R14, **R12 (CNC/lazer/abkant uyumlu)**, ikili (binary) DXF; DWG 2018 / 2013 / 2010 / 2004 / 2000 / R14. Kaydet, dosyanın açıldığı sürümü korur.
+- **Çizim denetimi (DENETLE):** Açılışta şüpheli nesneleri (çizimden çok uzak, çizime göre aşırı büyük daire/yay, neredeyse tam daire yay, sıfır boylu, kopya) bulur; seç / gizli katmana taşı / sil seçenekleri sunar.
+- **Blok açma:** Aynalanmış, eşit olmayan ölçekli, döndürülmüş ve dizi (MINSERT) bloklar doğru açılır.
 - **Son açılanlar, otomatik kayıt ve kurtarma:** Beklenmedik kapanmada bir sonraki açılışta çizim kurtarılır.
 - **Sağ tık menüsü:** Komut yokken sağ tık bağlam menüsü açar; komut sırasında Enter görevi görür.
 - **Ayarlar:** Firma/logo, kütüphane klasörü, otomatik kayıt aralığı, ölçü ve tarama varsayılanları,

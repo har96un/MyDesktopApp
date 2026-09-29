@@ -48,8 +48,8 @@ public sealed class BatchWindow : Window
         _rotate.SelectedIndex = 0;
         foreach (var s in new[] { "Yok", "X eksenine göre (y → −y)", "Y eksenine göre (x → −x)" }) _mirror.Items.Add(s);
         _mirror.SelectedIndex = 0;
-        foreach (var s in new[] { "DXF", "DWG" }) _format.Items.Add(s);
-        _format.SelectedIndex = 0;
+        foreach (var f in CadFileIO.Formats) _format.Items.Add(f.Label + " (" + f.Ext + ")");
+        _format.SelectedIndex = Math.Max(0, Array.FindIndex(CadFileIO.Formats, f => f.Id == settings.LastSaveFormat));
 
         var root = new StackPanel { Margin = new Thickness(12) };
         root.Children.Add(Header("1. Dosyalar"));
@@ -78,7 +78,7 @@ public sealed class BatchWindow : Window
         root.Children.Add(new TextBlock { Text = "Çıktı klasörü:" });
         root.Children.Add(outRow);
         root.Children.Add(_saveDrawing);
-        root.Children.Add(Row("Format:", _format));
+        root.Children.Add(Row("Kayıt biçimi / sürüm:", _format));
         root.Children.Add(Row("Dosya adı eki (ör. _0):", _suffix));
         root.Children.Add(_pdf);
         root.Children.Add(_csv);
@@ -174,7 +174,7 @@ public sealed class BatchWindow : Window
             Mirror = _mirror.SelectedIndex,
             Principal = _principal.IsChecked == true,
             Save = _saveDrawing.IsChecked == true,
-            Ext = _format.SelectedIndex == 1 ? ".dwg" : ".dxf",
+            Fmt = CadFileIO.Formats[Math.Max(0, _format.SelectedIndex)],
             Suffix = _suffix.Text.Trim(),
             Pdf = _pdf.IsChecked == true,
             Csv = _csv.IsChecked == true,
@@ -215,7 +215,7 @@ public sealed class BatchWindow : Window
                         ProfileOps.MoveToOrigin(ents, opt.Ref);
 
                         string baseOut = System.IO.Path.Combine(outDir, name + opt.Suffix);
-                        if (opt.Save) CadFileIO.Save(baseOut + opt.Ext, doc);
+                        if (opt.Save) CadFileIO.Save(baseOut + opt.Fmt.Ext, doc, null, opt.Fmt);
 
                         var b = doc.Extents(ents);
                         var sp = SectionProperties.Compute(ents);

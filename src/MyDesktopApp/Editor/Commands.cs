@@ -67,6 +67,7 @@ public sealed partial class CadEditor
         Reg("HELP", "Komut listesi", CmdHelp, "YARDIM", "?");
         RegisterDimCommands();
         RegisterModifyCommands();
+        Reg("AUDIT", "Çizimi denetler: şüpheli nesneleri (çok uzak, çok büyük, sıfır boylu, kopya) bulur", () => { AuditRequested?.Invoke(); return Task.CompletedTask; }, "DENETLE");
     }
 
     // ================================================================ Yardımcılar

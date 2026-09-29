@@ -17,6 +17,10 @@ public static class CadFileIO
         public int Groups { get; set; }
         public Dictionary<string, int> Skipped { get; } = new();
         public List<string> Notes { get; } = new();
+        /// <summary>Dosyanın AutoCAD sürümü (ör. "AutoCAD 2010").</summary>
+        public string VersionName { get; set; } = "";
+        /// <summary>Aynı sürümle kaydetmek için önerilen kayıt biçimi.</summary>
+        public string? FormatId { get; set; }
 
         public void Skip(string type)
         {
@@ -25,7 +29,7 @@ public static class CadFileIO
 
         public override string ToString()
         {
-            var s = $"{Imported} nesne yüklendi" + (Groups > 0 ? $", {Groups} grup." : ".");
+            var s = (VersionName.Length > 0 ? $"[{VersionName}] " : "") + $"{Imported} nesne yüklendi" + (Groups > 0 ? $", {Groups} grup." : ".");
             if (Skipped.Count > 0)
                 s += " Desteklenmeyen/atlanan: " + string.Join(", ", Skipped.Select(k => $"{k.Key}×{k.Value}"));
             return s;
@@ -38,6 +42,14 @@ public static class CadFileIO
     {
         A.CadDocument src = ReadAny(path);
         var report = new ImportReport();
+        try
+        {
+            var ver = src.Header.Version;
+            report.VersionName = VersionName(ver);
+            bool dwg = System.IO.Path.GetExtension(path).Equals(".dwg", StringComparison.OrdinalIgnoreCase);
+            report.FormatId = Formats.FirstOrDefault(f => f.Ext == (dwg ? ".dwg" : ".dxf") && !f.Binary && f.Version == ver)?.Id;
+        }
+        catch { /* sürüm bilgisi yok */ }
 
         foreach (var layer in src.Layers)
         {
@@ -294,11 +306,45 @@ public static class CadFileIO
             case AE.Insert ins:
                 {
                     if (depth > 16 || ins.Block == null) { rep.Skip("Blok"); break; }
-                    IEnumerable<AE.Entity> parts;
-                    try { parts = ins.Explode().ToList(); }
-                    catch { rep.Skip("Blok"); break; }
-                    foreach (var sub in parts)
-                        Convert(sub, doc, rep, ins, depth + 1);
+                    // Blok içeriğini blok koordinatlarında dönüştür, sonra kendi dönüşümümüzle yerleştir.
+                    // (Kütüphanenin Explode() işlevi aynalanmış bloklarda yay yönlerini çevirmediği için kullanılmıyor.)
+                    var tmp = new Model.CadDocument();
+                    var subRep = new ImportReport();
+                    foreach (var sub in ins.Block.Entities.ToList())
+                        Convert(sub, tmp, subRep, ins, depth + 1);
+                    foreach (var kv in subRep.Skipped)
+                        rep.Skipped[kv.Key] = rep.Skipped.TryGetValue(kv.Key, out var n0) ? n0 + kv.Value : kv.Value;
+
+                    int rows = Math.Max(1, (int)ins.RowCount), cols = Math.Max(1, (int)ins.ColumnCount);
+                    for (int r = 0; r < rows; r++)
+                        for (int cI = 0; cI < cols; cI++)
+                        {
+                            var m = InsertMatrix(ins, cI * ins.ColumnSpacing, r * ins.RowSpacing);
+                            bool conformal = IsConformal(m);
+                            foreach (var te in tmp.Entities)
+                            {
+                                var ce = conformal ? te.Clone() : Linearize(te);
+                                ce.Transform(m);
+                                if (ce.Layer == "0") ce.Layer = layer;
+                                doc.EnsureLayer(ce.Layer);
+                                if (tmp.Layers.TryGetValue(ce.Layer, out var tl) && !doc.Layers.ContainsKey(ce.Layer)) doc.Layers[ce.Layer] = tl.Clone();
+                                doc.Add(ce);
+                                rep.Imported++;
+                            }
+                        }
+                    // Öznitelik (attribute) yazıları dünya koordinatlarındadır
+                    try
+                    {
+                        foreach (var att in ins.Attributes)
+                            if (!att.IsInvisible && !string.IsNullOrEmpty(att.Value))
+                            {
+                                var p = Ocs(att.InsertPoint, att.Normal);
+                                var te = new Model.TextEntity(p, att.Height, att.Rotation, att.Value) { Layer = layer, Color = color };
+                                doc.Add(te);
+                                rep.Imported++;
+                            }
+                    }
+                    catch { /* öznitelik okunamadı */ }
                     break;
                 }
 
@@ -309,6 +355,69 @@ public static class CadFileIO
     }
 
     private static Vec2 V(XYZ p) => new(p.X, p.Y);
+
+    /// <summary>Blok yerleştirme dönüşümü: taban noktası → ölçek → dizi ofseti → dönme → konum → OCS.</summary>
+    private static Mat2D InsertMatrix(AE.Insert ins, double offX, double offY)
+    {
+        var bp = ins.Block?.BlockEntity?.BasePoint ?? XYZ.Zero;
+        double sx = ins.XScale == 0 ? 1 : ins.XScale, sy = ins.YScale == 0 ? 1 : ins.YScale;
+        var m = Mat2D.Translation(new Vec2(-bp.X, -bp.Y));
+        m = Mat2D.Then(m, new Mat2D(sx, 0, 0, sy, 0, 0));
+        m = Mat2D.Then(m, Mat2D.Translation(new Vec2(offX, offY)));
+        m = Mat2D.Then(m, Mat2D.Rotation(ins.Rotation, Vec2.Zero));
+        m = Mat2D.Then(m, Mat2D.Translation(new Vec2(ins.InsertPoint.X, ins.InsertPoint.Y)));
+        OcsAxes(ins.Normal, out double ax, out double ay, out double bx, out double by);
+        return Mat2D.Then(m, new Mat2D(ax, bx, ay, by, 0, 0));
+    }
+
+    /// <summary>Dönüşüm açıları ve oranları koruyor mu (daire daire olarak kalır mı)?</summary>
+    private static bool IsConformal(Mat2D m)
+    {
+        double c1 = m.A * m.A + m.C * m.C, c2 = m.B * m.B + m.D * m.D, dot = m.A * m.B + m.C * m.D;
+        double s = Math.Max(Math.Max(c1, c2), 1e-30);
+        return Math.Abs(c1 - c2) <= 1e-9 * s && Math.Abs(dot) <= 1e-9 * s;
+    }
+
+    /// <summary>Eşit olmayan ölçekli bloklarda daire/yayları çoklu çizgiye çevirir (elips olarak doğru görünsün).</summary>
+    private static Entity Linearize(Entity e)
+    {
+        Entity res;
+        switch (e)
+        {
+            case CircleEntity:
+            case ArcEntity:
+            case PolylineEntity when ((PolylineEntity)e).Vertices.Any(v => Math.Abs(v.Bulge) > 1e-12):
+                {
+                    var pts = e.ToPoints();
+                    bool closed = e.IsClosed;
+                    if (closed && pts.Count > 2 && pts[0].IsClose(pts[^1], 1e-9)) pts.RemoveAt(pts.Count - 1);
+                    res = new PolylineEntity(pts, closed);
+                    break;
+                }
+            case HatchEntity h:
+                {
+                    var nh = (HatchEntity)h.Clone();
+                    nh.Loops.Clear();
+                    foreach (var poly in h.LoopPolygons()) nh.Loops.Add(poly.Select(p => new PolyVertex(p)).ToList());
+                    res = nh;
+                    break;
+                }
+            default:
+                return e.Clone();
+        }
+        res.Layer = e.Layer;
+        res.Color = e.Color;
+        res.GroupId = e.GroupId;
+        return res;
+    }
+
+    /// <summary>OCS eksenlerinin dünya XY bileşenleri (AutoCAD "arbitrary axis").</summary>
+    private static void OcsAxes(XYZ n, out double ax, out double ay, out double bx, out double by)
+    {
+        var x = Ocs(new XYZ(1, 0, 0), n);
+        var y = Ocs(new XYZ(0, 1, 0), n);
+        ax = x.X; ay = x.Y; bx = y.X; by = y.Y;
+    }
 
     private static string NormalizePattern(string? name)
     {
@@ -434,22 +543,93 @@ public static class CadFileIO
 
     // ------------------------------------------------------------------ YAZMA
 
-    public static void Save(string path, Model.CadDocument source, IEnumerable<Entity>? only = null)
+    // ------------------------------------------------------------------ KAYIT BİÇİMLERİ
+
+    /// <summary>Kayıt biçimi: uzantı, AutoCAD sürümü, ikili/ASCII.</summary>
+    public sealed record SaveFormat(string Id, string Label, string Ext, A.ACadVersion Version, bool Binary = false, bool R12 = false)
     {
+        public string Filter => $"{Label} (*{Ext})|*{Ext}";
+    }
+
+    public static readonly SaveFormat[] Formats =
+    {
+        new("dxf2018", "AutoCAD 2018 DXF", ".dxf", A.ACadVersion.AC1032),
+        new("dxf2013", "AutoCAD 2013 DXF", ".dxf", A.ACadVersion.AC1027),
+        new("dxf2010", "AutoCAD 2010 DXF", ".dxf", A.ACadVersion.AC1024),
+        new("dxf2007", "AutoCAD 2007 DXF", ".dxf", A.ACadVersion.AC1021),
+        new("dxf2004", "AutoCAD 2004 DXF", ".dxf", A.ACadVersion.AC1018),
+        new("dxf2000", "AutoCAD 2000 DXF", ".dxf", A.ACadVersion.AC1015),
+        new("dxfr14", "AutoCAD R14 DXF", ".dxf", A.ACadVersion.AC1014),
+        new("dxfr12", "AutoCAD R12/LT2 DXF - CNC, lazer, abkant uyumlu", ".dxf", A.ACadVersion.AC1009, R12: true),
+        new("dxfb2018", "AutoCAD 2018 İkili (binary) DXF", ".dxf", A.ACadVersion.AC1032, Binary: true),
+        new("dxfb2010", "AutoCAD 2010 İkili (binary) DXF", ".dxf", A.ACadVersion.AC1024, Binary: true),
+        new("dwg2018", "AutoCAD 2018 DWG", ".dwg", A.ACadVersion.AC1032),
+        new("dwg2013", "AutoCAD 2013 DWG", ".dwg", A.ACadVersion.AC1027),
+        new("dwg2010", "AutoCAD 2010 DWG", ".dwg", A.ACadVersion.AC1024),
+        new("dwg2004", "AutoCAD 2004 DWG", ".dwg", A.ACadVersion.AC1018),
+        new("dwg2000", "AutoCAD 2000 DWG", ".dwg", A.ACadVersion.AC1015),
+        new("dwgr14", "AutoCAD R14 DWG", ".dwg", A.ACadVersion.AC1014),
+    };
+
+    public static string SaveFilter => string.Join("|", Formats.Select(f => f.Filter));
+
+    public static SaveFormat? FindFormat(string? id) => Formats.FirstOrDefault(f => f.Id == id);
+
+    /// <summary>Uzantıya göre varsayılan biçim (DWG 2007 yazılamadığı için en yakın sürüme iner).</summary>
+    public static SaveFormat DefaultFor(string path, string? preferredId)
+    {
+        string ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
+        var pref = FindFormat(preferredId);
+        if (pref != null && pref.Ext == ext) return pref;
+        if (pref != null && ext == ".dwg")
+        {
+            // Tercih edilen DXF sürümünün DWG karşılığı (2007 → 2004)
+            var dw = Formats.Where(f => f.Ext == ".dwg" && f.Version <= pref.Version).OrderByDescending(f => f.Version).FirstOrDefault();
+            if (dw != null) return dw;
+        }
+        if (pref != null && ext == ".dxf" && pref.Ext == ".dwg")
+            return Formats.First(f => f.Ext == ".dxf" && !f.Binary && f.Version == pref.Version);
+        return ext == ".dwg" ? Formats.First(f => f.Id == "dwg2018") : Formats.First(f => f.Id == "dxf2018");
+    }
+
+    public static string VersionName(A.ACadVersion v) => v switch
+    {
+        A.ACadVersion.AC1009 => "AutoCAD R11/R12",
+        A.ACadVersion.AC1012 => "AutoCAD R13",
+        A.ACadVersion.AC1014 => "AutoCAD R14",
+        A.ACadVersion.AC1015 => "AutoCAD 2000",
+        A.ACadVersion.AC1018 => "AutoCAD 2004",
+        A.ACadVersion.AC1021 => "AutoCAD 2007",
+        A.ACadVersion.AC1024 => "AutoCAD 2010",
+        A.ACadVersion.AC1027 => "AutoCAD 2013",
+        A.ACadVersion.AC1032 => "AutoCAD 2018",
+        _ => v.ToString()
+    };
+
+    public static void Save(string path, Model.CadDocument source, IEnumerable<Entity>? only = null, SaveFormat? format = null)
+    {
+        format ??= DefaultFor(path, null);
+        if (format.R12)
+        {
+            DxfR12Writer.Write(path, source, only);
+            return;
+        }
         try
         {
-            SaveCore(path, source, only, withGroups: true);
+            SaveCore(path, source, only, withGroups: true, format);
         }
         catch when (source.Entities.Any(e => e.GroupId != null))
         {
             // Grup yazımı desteklenmezse gruplar olmadan kaydet
-            SaveCore(path, source, only, withGroups: false);
+            SaveCore(path, source, only, withGroups: false, format);
         }
     }
 
-    private static void SaveCore(string path, Model.CadDocument source, IEnumerable<Entity>? only, bool withGroups)
+    private static void SaveCore(string path, Model.CadDocument source, IEnumerable<Entity>? only, bool withGroups, SaveFormat format)
     {
-        var doc = new A.CadDocument();
+        var doc = new A.CadDocument(format.Version);
+        // 2007 öncesi sürümler kod sayfası kullanır: Türkçe karakterler için Windows-1254
+        if (format.Version < A.ACadVersion.AC1021) doc.Header.CodePage = "ANSI_1254";
         var groupMap = new Dictionary<string, List<AE.Entity>>();
 
         // Ölçü stili
@@ -502,9 +682,8 @@ public static class CadFileIO
             foreach (var kv in groupMap)
                 doc.Groups.CreateGroup(kv.Key, kv.Value);
 
-        string ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
-        if (ext == ".dwg") DwgWriter.Write(path, doc);
-        else DxfWriter.Write(path, doc, false);
+        if (format.Ext == ".dwg") DwgWriter.Write(path, doc);
+        else DxfWriter.Write(path, doc, format.Binary);
     }
 
     private static void AddGroupMember(Dictionary<string, List<AE.Entity>> map, Entity e, AE.Entity ae)

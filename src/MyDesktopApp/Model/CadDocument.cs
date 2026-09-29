@@ -26,6 +26,8 @@ public sealed class CadDocument
     public string? FilePath { get; set; }
     public bool IsModified { get; set; }
     public string CurrentLayer { get; set; } = "0";
+    /// <summary>Son kayıt / açılış biçimi (ör. "dxf2010"); Kaydet aynı sürümü kullanır.</summary>
+    public string? SaveFormatId { get; set; }
 
     // Ölçü / tarama varsayılanları (Ayarlar'dan gelir)
     public double DimTextHeight { get; set; } = 2.5;

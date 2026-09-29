@@ -12,6 +12,10 @@ public sealed class AppSettings
     public string LibraryFolder { get; set; } = "";
     public int AutosaveMinutes { get; set; } = 5;
     public string ReportAuthor { get; set; } = "";
+    /// <summary>Farklı Kaydet'te varsayılan biçim.</summary>
+    public string LastSaveFormat { get; set; } = "dxf2018";
+    /// <summary>Dosya açılınca şüpheli nesne denetimi yapılsın mı.</summary>
+    public bool AuditOnOpen { get; set; } = true;
 
     // Ölçü / tarama varsayılanları
     public double DimTextHeight { get; set; } = 2.5;

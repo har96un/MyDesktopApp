@@ -24,20 +24,22 @@ public sealed class LibraryWindow : Window
     }
 
     private readonly AppSettings _settings;
-    private readonly CadDocument _doc;
-    private readonly CadEditor _editor;
+    private readonly Func<CadDocument> _docP;
+    private readonly Func<CadEditor> _editorP;
+    private CadDocument _doc => _docP();
+    private CadEditor _editor => _editorP();
     private readonly TextBox _search = new() { Padding = new Thickness(3), MinWidth = 180 };
     private readonly ListBox _list = new();
     private readonly TextBlock _status = new() { Margin = new Thickness(6, 3, 6, 3), Foreground = Brushes.DimGray };
     private readonly List<LibItem> _items = new();
     private Point? _dragStart;
 
-    public LibraryWindow(Window owner, AppSettings settings, CadDocument doc, CadEditor editor)
+    public LibraryWindow(Window owner, AppSettings settings, Func<CadDocument> doc, Func<CadEditor> editor)
     {
         Owner = owner;
         _settings = settings;
-        _doc = doc;
-        _editor = editor;
+        _docP = doc;
+        _editorP = editor;
         Title = "Profil Kütüphanesi";
         Width = 560;
         Height = 620;

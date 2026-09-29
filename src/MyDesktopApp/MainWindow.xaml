@@ -24,7 +24,7 @@
         <!-- Menü -->
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="_Dosya">
-                <MenuItem Header="_Yeni" InputGestureText="Ctrl+N" Click="New_Click"/>
+                <MenuItem Header="_Yeni (yeni sekme)" InputGestureText="Ctrl+N" Click="New_Click"/>
                 <MenuItem Header="_Aç (DWG/DXF)..." InputGestureText="Ctrl+O" Click="Open_Click"/>
                 <MenuItem Header="_İçe Aktar (mevcut çizime ekle)..." Click="Import_Click"/>
                 <Separator/>
@@ -38,6 +38,8 @@
                 <MenuItem x:Name="RecentMenu" Header="_Son Açılanlar" SubmenuOpened="RecentMenu_SubmenuOpened">
                     <MenuItem Header="(boş)" IsEnabled="False"/>
                 </MenuItem>
+                <Separator/>
+                <MenuItem Header="Sekmeyi _Kapat" InputGestureText="Ctrl+W" Click="CloseTab_Click"/>
                 <Separator/>
                 <MenuItem Header="Çı_kış" Click="Exit_Click"/>
             </MenuItem>
@@ -69,6 +71,7 @@
                 <MenuItem Header="Profil _Kütüphanesi..." InputGestureText="Ctrl+L" Click="Library_Click"/>
                 <MenuItem Header="_Toplu İşlem..." Click="Batch_Click"/>
                 <MenuItem Header="_PDF Kesit Raporu..." InputGestureText="Ctrl+P" Click="Report_Click"/>
+                <MenuItem Header="Çizimi _Denetle (şüpheli nesneler)..." Click="Audit_Click"/>
                 <Separator/>
                 <MenuItem Header="_Ayarlar ve Kısayollar..." Click="Settings_Click"/>
             </MenuItem>
@@ -210,6 +213,16 @@
                     </TextBlock>
                 </StackPanel>
             </ScrollViewer>
+        </Border>
+
+        <!-- Çizim sekmeleri -->
+        <Border DockPanel.Dock="Top" Background="#FFE4E7EC" BorderBrush="#FFBBBBBB" BorderThickness="0,0,0,1">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="＋" Width="28" Margin="2" Focusable="False" Click="New_Click" ToolTip="Yeni çizim sekmesi (Ctrl+N)"/>
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Focusable="False">
+                    <StackPanel x:Name="TabStrip" Orientation="Horizontal"/>
+                </ScrollViewer>
+            </DockPanel>
         </Border>
 
         <!-- Çizim alanı -->

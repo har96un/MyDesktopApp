@@ -20,59 +20,68 @@ public partial class MainWindow
     private LibraryWindow? _library;
 
     private static string AutosaveDir => System.IO.Path.Combine(AppSettings.AppDataDir, "autosave");
-    private static string AutosaveFile => System.IO.Path.Combine(AutosaveDir, "autosave.dxf");
-    private static string AutosaveInfo => System.IO.Path.Combine(AutosaveDir, "autosave.txt");
+    private static string AutosaveFile(DocTab t) => System.IO.Path.Combine(AutosaveDir, $"sekme{t.Id}.dxf");
+    private static string AutosaveInfo(string dxf) => System.IO.Path.ChangeExtension(dxf, ".txt");
 
     private void InitFeatures()
     {
         ApplySettings();
         _autosaveTimer.Tick += (_, _) => Autosave();
-        _editor.IdleRightClick += ShowCanvasContextMenu;
     }
 
     private void OnLoadedFeatures()
     {
-        // Kurtarma
-        if (File.Exists(AutosaveFile))
+        // Kurtarma: önceki oturumdan kalan otomatik kayıtlar
+        string[] leftovers = Array.Empty<string>();
+        try { if (Directory.Exists(AutosaveDir)) leftovers = Directory.GetFiles(AutosaveDir, "*.dxf"); } catch { /* yoksay */ }
+        if (leftovers.Length > 0)
         {
-            string orig = "";
-            try { if (File.Exists(AutosaveInfo)) orig = File.ReadAllText(AutosaveInfo).Trim(); } catch { /* yoksay */ }
-            var when = File.GetLastWriteTime(AutosaveFile);
+            var infos = leftovers.Select(f =>
+            {
+                string orig = "";
+                try { if (File.Exists(AutosaveInfo(f))) orig = File.ReadAllText(AutosaveInfo(f)).Trim(); } catch { /* yoksay */ }
+                return (File: f, Orig: orig, When: File.GetLastWriteTime(f));
+            }).ToList();
+            string list = string.Join("\n", infos.Select(i => $"  • {(i.Orig.Length > 0 ? System.IO.Path.GetFileName(i.Orig) : "Adsız çizim")} ({i.When:dd.MM.yyyy HH:mm})"));
             var r = MessageBox.Show(this,
-                "Profil CAD beklenmedik şekilde kapanmış görünüyor.\n\n" +
-                $"Otomatik kaydedilen çizim ({when:dd.MM.yyyy HH:mm}{(orig.Length > 0 ? ", " + System.IO.Path.GetFileName(orig) : "")}) kurtarılsın mı?",
+                "Profil CAD beklenmedik şekilde kapanmış görünüyor.\n\nOtomatik kaydedilmiş çizimler:\n" + list + "\n\nKurtarılsın mı?",
                 "Kurtarma", MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (r == MessageBoxResult.Yes)
             {
-                _ = RecoverAsync(orig);
+                _ = RecoverAsync(infos.Select(i => (i.File, i.Orig)).ToList());
                 return;
             }
-            DeleteAutosave();
+            foreach (var i in infos) DeleteAutosaveFiles(i.File);
         }
 
-        // Komut satırı argümanı (dosya ilişkilendirme / "Birlikte aç")
+        // Komut satırı argümanları (dosya ilişkilendirme / "Birlikte aç")
         var args = Environment.GetCommandLineArgs().Skip(1).Where(File.Exists).ToList();
-        if (args.Count > 0) _ = OpenFile(args[0]);
+        if (args.Count > 0) _ = OpenFilesAsync(args);
     }
 
-    private async Task RecoverAsync(string originalPath)
+    private async Task OpenFilesAsync(IEnumerable<string> files)
     {
-        await OpenFile(AutosaveFile, recovered: true);
-        AppendHistory("Çizim otomatik kayıttan kurtarıldı. Lütfen kaydedin." +
-                      (originalPath.Length > 0 ? $" (Özgün dosya: {originalPath})" : ""));
+        foreach (var f in files) await OpenFile(f);
+    }
+
+    private async Task RecoverAsync(List<(string File, string Orig)> items)
+    {
+        foreach (var (file, orig) in items)
+        {
+            // Dosyayı geçici bir yere taşı (yeni sekme kendi adıyla otomatik kaydeder)
+            string tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ProfilCAD_kurtarma_{Guid.NewGuid():N}.dxf");
+            try { File.Copy(file, tmp, true); } catch { continue; }
+            DeleteAutosaveFiles(file);
+            await OpenFile(tmp, recovered: true, originalPath: orig);
+            try { File.Delete(tmp); } catch { /* yoksay */ }
+            AppendHistory("Çizim otomatik kayıttan kurtarıldı; lütfen kaydedin." + (orig.Length > 0 ? $" (Özgün dosya: {orig})" : ""));
+        }
         UpdateTitle();
     }
 
     private void ApplySettings()
     {
-        _doc.DimTextHeight = _settings.DimTextHeight;
-        _doc.DimArrowSize = _settings.DimArrowSize;
-        _doc.DimDecimals = _settings.DimDecimals;
-        _doc.HatchPattern = _settings.HatchPattern;
-        _doc.HatchScale = _settings.HatchScale;
-
-        var bad = _editor.SetCustomAliases(_settings.Aliases);
-        if (bad.Count > 0) AppendHistory("Geçersiz kısa adlar yok sayıldı: " + string.Join(", ", bad));
+        foreach (var t in _tabs) ApplySettingsTo(t, report: t == _active);
 
         _shortcuts.Clear();
         foreach (var (key, cmd) in _settings.Shortcuts)
@@ -102,30 +111,49 @@ public partial class MainWindow
 
     // ================================================================ Otomatik kayıt
 
-    private void Autosave()
+    private void ApplySettingsTo(DocTab t, bool report = false)
     {
-        if (!_doc.IsModified || _doc.Entities.Count == 0) return;
-        try
-        {
-            Directory.CreateDirectory(AutosaveDir);
-            string tmp = AutosaveFile + ".tmp.dxf";
-            CadFileIO.Save(tmp, _doc);
-            File.Move(tmp, AutosaveFile, overwrite: true);
-            File.WriteAllText(AutosaveInfo, _doc.FilePath ?? "");
-            StatusText.Text = $"Otomatik kaydedildi {DateTime.Now:HH:mm}";
-        }
-        catch (Exception ex)
-        {
-            AppendHistory("Otomatik kayıt başarısız: " + ex.Message);
-        }
+        t.Doc.DimTextHeight = _settings.DimTextHeight;
+        t.Doc.DimArrowSize = _settings.DimArrowSize;
+        t.Doc.DimDecimals = _settings.DimDecimals;
+        t.Doc.HatchPattern = _settings.HatchPattern;
+        t.Doc.HatchScale = _settings.HatchScale;
+        var bad = t.Editor.SetCustomAliases(_settings.Aliases);
+        if (report && bad.Count > 0) AppendHistory("Geçersiz kısa adlar yok sayıldı: " + string.Join(", ", bad));
     }
 
-    private static void DeleteAutosave()
+    private void Autosave()
+    {
+        int n = 0;
+        foreach (var t in _tabs)
+        {
+            if (!t.Doc.IsModified || t.Doc.Entities.Count == 0) continue;
+            try
+            {
+                Directory.CreateDirectory(AutosaveDir);
+                string file = AutosaveFile(t);
+                string tmp = file + ".tmp.dxf";
+                CadFileIO.Save(tmp, t.Doc);
+                File.Move(tmp, file, overwrite: true);
+                File.WriteAllText(AutosaveInfo(file), t.Doc.FilePath ?? "");
+                n++;
+            }
+            catch (Exception ex)
+            {
+                AppendHistory($"Otomatik kayıt başarısız ({t.Name}): " + ex.Message);
+            }
+        }
+        if (n > 0) StatusText.Text = $"Otomatik kaydedildi {DateTime.Now:HH:mm} ({n} çizim)";
+    }
+
+    private static void DeleteAutosave(DocTab t) => DeleteAutosaveFiles(AutosaveFile(t));
+
+    private static void DeleteAutosaveFiles(string dxf)
     {
         try
         {
-            if (File.Exists(AutosaveFile)) File.Delete(AutosaveFile);
-            if (File.Exists(AutosaveInfo)) File.Delete(AutosaveInfo);
+            if (File.Exists(dxf)) File.Delete(dxf);
+            if (File.Exists(AutosaveInfo(dxf))) File.Delete(AutosaveInfo(dxf));
         }
         catch { /* yoksay */ }
     }
@@ -151,11 +179,7 @@ public partial class MainWindow
                 ToolTip = path,
                 IsEnabled = File.Exists(path)
             };
-            mi.Click += async (_, _) =>
-            {
-                if (!ConfirmDiscard()) return;
-                await OpenFile(path);
-            };
+            mi.Click += async (_, _) => await OpenFile(path);
             RecentMenu.Items.Add(mi);
         }
         RecentMenu.Items.Add(new Separator());
@@ -235,7 +259,7 @@ public partial class MainWindow
     {
         if (_library == null || !_library.IsLoaded)
         {
-            _library = new LibraryWindow(this, _settings, _doc, _editor);
+            _library = new LibraryWindow(this, _settings, () => _doc, () => _editor);
             _library.Closed += (_, _) => _library = null;
             _library.Show();
         }
@@ -278,8 +302,9 @@ public partial class MainWindow
         {
             var cad = files.Where(f => f.EndsWith(".dxf", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".dwg", StringComparison.OrdinalIgnoreCase)).ToList();
             if (cad.Count == 0) return;
-            if (_doc.Entities.Count == 0 && !_doc.IsModified && cad.Count == 1) await OpenFile(cad[0]);
-            else await ImportFiles(cad);
+            // Ctrl basılıysa etkin çizime ekle, değilse her dosya kendi sekmesinde açılır
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) await ImportFiles(cad);
+            else await OpenFilesAsync(cad);
             Activate();
         }
     }
@@ -337,5 +362,63 @@ public partial class MainWindow
             AppendHistory("Ayarlar kaydedildi.");
         }
         InputBox.Focus();
+    }
+
+    // ================================================================ Çizim denetimi
+
+    private void Audit_Click(object sender, RoutedEventArgs e) =>
+        RunImportAudit(_doc.Entities.ToList(), _active?.Name ?? "Çizim", manual: true);
+
+    /// <summary>Şüpheli nesneleri bulur ve kullanıcıya ne yapılacağını sorar.</summary>
+    private void RunImportAudit(List<Entity> items, string source, bool manual = false)
+    {
+        if (!manual && !_settings.AuditOnOpen) return;
+        AuditResult res;
+        try { res = ImportAudit.Analyze(items); }
+        catch (Exception ex) { AppendHistory("Denetim yapılamadı: " + ex.Message); return; }
+        if (res.Total == 0)
+        {
+            if (manual) AppendHistory("Denetim: şüpheli nesne bulunamadı.");
+            return;
+        }
+        foreach (var (r, l) in res.Items) AppendHistory($"Denetim: {AuditResult.Describe(r)}: {l.Count}");
+
+        var w = new AuditWindow(this, res, source, _settings.AuditOnOpen);
+        bool ok = w.ShowDialog() == true;
+        if (w.AuditOnOpen != _settings.AuditOnOpen) { _settings.AuditOnOpen = w.AuditOnOpen; _settings.Save(); }
+        if (!ok || w.Action == AuditAction.None || w.Chosen.Count == 0) return;
+
+        var chosen = w.Chosen.Distinct().ToList();
+        switch (w.Action)
+        {
+            case AuditAction.Delete:
+                _doc.SaveUndo();
+                _doc.Remove(chosen);
+                _editor.NotifyDocumentChanged();
+                _doc.RaiseSelectionChanged();
+                AppendHistory($"Denetim: {chosen.Count} şüpheli nesne silindi (Ctrl+Z ile geri alınabilir).");
+                DrawArea.ZoomExtents();
+                break;
+            case AuditAction.MoveToLayer:
+                {
+                    _doc.SaveUndo();
+                    const string name = "_ŞÜPHELİ";
+                    var li = _doc.EnsureLayer(name);
+                    li.Color = new EntColor(255, 0, 0, 1);
+                    li.Visible = false;
+                    foreach (var en in chosen) en.Layer = name;
+                    _doc.ClearSelection();
+                    _editor.NotifyDocumentChanged();
+                    LayerPanel.Tag = null;
+                    RebuildLayerPanel(true);
+                    AppendHistory($"Denetim: {chosen.Count} nesne gizli \"{name}\" katmanına taşındı. Katmanlar panelinden görünür yapabilirsiniz.");
+                    DrawArea.ZoomExtents();
+                    break;
+                }
+            case AuditAction.Select:
+                _doc.SetSelection(chosen);
+                AppendHistory($"Denetim: {chosen.Count} şüpheli nesne seçildi. Silmek için Del, gizlemek için bir katmana taşıyın.");
+                break;
+        }
     }
 }

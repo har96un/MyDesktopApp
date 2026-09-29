@@ -14,33 +14,23 @@ namespace MyDesktopApp;
 
 public partial class MainWindow : Window
 {
-    private readonly CadDocument _doc = new();
-    private readonly CadEditor _editor;
+    // Etkin sekmenin belgesi ve düzenleyicisi (sekme değiştikçe değişir)
+    private CadDocument _doc = null!;
+    private CadEditor _editor = null!;
     private readonly List<string> _history = new();
     private const int MaxHistory = 400;
 
     public MainWindow()
     {
         InitializeComponent();
-        _editor = new CadEditor(_doc);
-        DrawArea.Attach(_editor);
-
-        _editor.Message += AppendHistory;
-        _editor.StateChanged += UpdateState;
-        _editor.RequestFileNew += () => New_Click(this, new RoutedEventArgs());
-        _doc.Changed += (_, _) =>
-        {
-            UpdateTitle();
-            RebuildLayerPanel();
-            if (!PropsPanel.IsKeyboardFocusWithin) BuildPropertiesPanel();
-        };
-        _doc.SelectionChanged += (_, _) => UpdatePanel();
         DrawArea.CursorMoved += p => CoordText.Text = $"{Vec2.Format(p.X),12}, {Vec2.Format(p.Y),12}";
 
-        SnapToggle.IsChecked = _editor.SnapEnabled;
-        GridToggle.IsChecked = _editor.GridEnabled;
-        OrthoToggle.IsChecked = _editor.OrthoEnabled;
-        TrackToggle.IsChecked = _editor.TrackingEnabled;
+        var first = CreateTab();
+        SnapToggle.IsChecked = first.Editor.SnapEnabled;
+        GridToggle.IsChecked = first.Editor.GridEnabled;
+        OrthoToggle.IsChecked = first.Editor.OrthoEnabled;
+        TrackToggle.IsChecked = first.Editor.TrackingEnabled;
+        ActivateTab(first);
 
         InitFeatures();
     }
@@ -160,6 +150,8 @@ public partial class MainWindow : Window
                 case Key.O: Open_Click(this, e); e.Handled = true; return;
                 case Key.S: Save_Click(this, e); e.Handled = true; return;
                 case Key.N: New_Click(this, e); e.Handled = true; return;
+                case Key.W: CloseTab(_active!); e.Handled = true; return;
+                case Key.Tab: SwitchTab(Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? -1 : 1); e.Handled = true; return;
                 case Key.L: Library_Click(this, e); e.Handled = true; return;
                 case Key.P: Report_Click(this, e); e.Handled = true; return;
             }
@@ -396,52 +388,47 @@ public partial class MainWindow : Window
 
     private void UpdateTitle()
     {
-        string name = _doc.FilePath != null ? System.IO.Path.GetFileName(_doc.FilePath) : "Adsız";
-        Title = $"Profil CAD - {name}{(_doc.IsModified ? " *" : "")}";
+        if (_active == null) return;
+        Title = $"Profil CAD - {_active.Name}{(_doc.IsModified ? " *" : "")}";
+        UpdateTabHeader(_active);
     }
 
     // ================================================================ Dosya işlemleri
 
     private const string OpenFilter = "CAD dosyaları (*.dwg;*.dxf)|*.dwg;*.dxf|DWG (*.dwg)|*.dwg|DXF (*.dxf)|*.dxf";
-    private const string SaveFilter = "DXF (*.dxf)|*.dxf|DWG (*.dwg)|*.dwg";
 
     private bool ConfirmDiscard()
     {
         if (!_doc.IsModified) return true;
-        var r = MessageBox.Show(this, "Çizimde kaydedilmemiş değişiklikler var. Kaydedilsin mi?", "Profil CAD",
+        var r = MessageBox.Show(this, $"\"{_active?.Name}\" çiziminde kaydedilmemiş değişiklikler var. Kaydedilsin mi?", "Profil CAD",
             MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
         if (r == MessageBoxResult.Cancel) return false;
         if (r == MessageBoxResult.Yes) return SaveDocument(_doc.FilePath);
         return true;
     }
 
-    private void New_Click(object sender, RoutedEventArgs e)
-    {
-        if (!ConfirmDiscard()) return;
-        _editor.CancelCommand();
-        _doc.Clear();
-        DeleteAutosave();
-        LayerPanel.Tag = null;
-        RebuildLayerPanel();
-        DrawArea.ZoomExtents();
-        UpdateTitle();
-        UpdatePanel();
-        AppendHistory("Yeni çizim.");
-    }
+    private void New_Click(object sender, RoutedEventArgs e) => NewTab();
 
     private async void Open_Click(object sender, RoutedEventArgs e)
     {
-        if (!ConfirmDiscard()) return;
-        var dlg = new OpenFileDialog { Filter = OpenFilter, Title = "DWG / DXF Aç" };
+        var dlg = new OpenFileDialog { Filter = OpenFilter, Title = "DWG / DXF Aç", Multiselect = true };
         if (dlg.ShowDialog(this) != true) return;
-        await OpenFile(dlg.FileName);
+        foreach (var f in dlg.FileNames) await OpenFile(f);
     }
 
     /// <summary>Dosyayı açar (kaydedilmemiş değişiklik onayı çağırandadır).</summary>
-    private async Task OpenFile(string path, bool recovered = false)
+    private async Task OpenFile(string path, bool recovered = false, string? originalPath = null)
     {
+        if (!recovered)
+        {
+            var open = _tabs.FirstOrDefault(t => string.Equals(t.Doc.FilePath, path, StringComparison.OrdinalIgnoreCase));
+            if (open != null) { ActivateTab(open); AppendHistory($"Dosya zaten açık: {path}"); return; }
+        }
+        // Etkin sekme boş ve değiştirilmemişse onu kullan, yoksa yeni sekme
+        if (_doc.Entities.Count > 0 || _doc.IsModified || _doc.FilePath != null) ActivateTab(CreateTab());
         _editor.CancelCommand();
         var tmp = new CadDocument();
+        bool loaded = false;
         try
         {
             Mouse.OverrideCursor = Cursors.Wait;
@@ -449,10 +436,12 @@ public partial class MainWindow : Window
             var report = await Task.Run(() => CadFileIO.Load(path, tmp));
             _doc.Clear();
             _doc.Merge(tmp);
-            _doc.FilePath = recovered ? null : path;
+            _doc.FilePath = recovered ? (string.IsNullOrEmpty(originalPath) ? null : originalPath) : path;
             _doc.IsModified = recovered;
+            _doc.SaveFormatId = report.FormatId;
             AppendHistory(report.ToString());
             if (!recovered) _settings.AddRecent(path);
+            loaded = true;
         }
         catch (Exception ex)
         {
@@ -469,6 +458,7 @@ public partial class MainWindow : Window
         UpdateTitle();
         UpdatePanel();
         InputBox.Focus();
+        if (loaded && !recovered) RunImportAudit(_doc.Entities.ToList(), System.IO.Path.GetFileName(path));
     }
 
     private async void Import_Click(object sender, RoutedEventArgs e)
@@ -482,10 +472,10 @@ public partial class MainWindow : Window
     {
         _editor.CancelCommand();
         _doc.SaveUndo();
+        var added = new List<Entity>();
         try
         {
             Mouse.OverrideCursor = Cursors.Wait;
-            var added = new List<Entity>();
             foreach (var f in fileNames)
             {
                 var tmp = new CadDocument();
@@ -509,33 +499,56 @@ public partial class MainWindow : Window
         _doc.RaiseChanged();
         DrawArea.ZoomExtents();
         InputBox.Focus();
+        if (added.Count > 0) RunImportAudit(added, "İçe aktarılan nesneler");
     }
 
     private void Save_Click(object sender, RoutedEventArgs e) => SaveDocument(_doc.FilePath);
 
     private void SaveAs_Click(object sender, RoutedEventArgs e) => SaveDocument(null);
 
+    /// <summary>Kayıt biçimi seçtiren kaydetme penceresi. İptalde null.</summary>
+    private (string Path, CadFileIO.SaveFormat Format)? AskSavePath(string title, string defaultName)
+    {
+        var def = CadFileIO.FindFormat(_doc.SaveFormatId) ?? CadFileIO.FindFormat(_settings.LastSaveFormat) ?? CadFileIO.Formats[0];
+        var dlg = new SaveFileDialog
+        {
+            Filter = CadFileIO.SaveFilter,
+            FilterIndex = Array.IndexOf(CadFileIO.Formats, def) + 1,
+            Title = title,
+            FileName = defaultName,
+            AddExtension = true
+        };
+        if (dlg.ShowDialog(this) != true) return null;
+        var fmt = CadFileIO.Formats[Math.Clamp(dlg.FilterIndex - 1, 0, CadFileIO.Formats.Length - 1)];
+        string path = dlg.FileName;
+        if (!System.IO.Path.GetExtension(path).Equals(fmt.Ext, StringComparison.OrdinalIgnoreCase))
+            path = System.IO.Path.ChangeExtension(path, fmt.Ext);
+        _settings.LastSaveFormat = fmt.Id;
+        _settings.Save();
+        return (path, fmt);
+    }
+
     private bool SaveDocument(string? path)
     {
+        CadFileIO.SaveFormat fmt;
         if (path == null)
         {
-            var dlg = new SaveFileDialog
-            {
-                Filter = SaveFilter,
-                Title = "Farklı Kaydet",
-                FileName = _doc.FilePath != null ? System.IO.Path.GetFileNameWithoutExtension(_doc.FilePath) : "profil"
-            };
-            if (dlg.ShowDialog(this) != true) return false;
-            path = dlg.FileName;
+            var r = AskSavePath("Farklı Kaydet", _doc.FilePath != null ? System.IO.Path.GetFileNameWithoutExtension(_doc.FilePath) : "profil");
+            if (r is not { } rr) return false;
+            path = rr.Path;
+            fmt = rr.Format;
         }
+        else fmt = CadFileIO.DefaultFor(path, _doc.SaveFormatId ?? _settings.LastSaveFormat);
         try
         {
-            CadFileIO.Save(path, _doc);
+            CadFileIO.Save(path, _doc, null, fmt);
             _doc.FilePath = path;
             _doc.IsModified = false;
+            _doc.SaveFormatId = fmt.Id;
             _settings.AddRecent(path);
-            DeleteAutosave();
-            AppendHistory($"Kaydedildi: {path}");
+            DeleteAutosave(_active!);
+            AppendHistory($"Kaydedildi ({fmt.Label}): {path}");
+            if (fmt.R12) AppendHistory("  Not: R12 biçiminde ölçüler ve taramalar çizgilere dönüştürüldü, gruplar yazılmadı.");
             UpdateTitle();
             return true;
         }
@@ -556,12 +569,11 @@ public partial class MainWindow : Window
             MessageBox.Show(this, "Önce dışa aktarılacak nesneleri seçin.", "Profil CAD");
             return;
         }
-        var dlg = new SaveFileDialog { Filter = SaveFilter, Title = "Seçileni Dışa Aktar", FileName = "kesit" };
-        if (dlg.ShowDialog(this) != true) return;
+        if (AskSavePath("Seçileni Dışa Aktar", "kesit") is not { } r) return;
         try
         {
-            CadFileIO.Save(dlg.FileName, _doc, _doc.Selection.ToList());
-            AppendHistory($"{_doc.Selection.Count} nesne dışa aktarıldı: {dlg.FileName}");
+            CadFileIO.Save(r.Path, _doc, _doc.Selection.ToList(), r.Format);
+            AppendHistory($"{_doc.Selection.Count} nesne dışa aktarıldı ({r.Format.Label}): {r.Path}");
         }
         catch (Exception ex)
         {
@@ -573,9 +585,14 @@ public partial class MainWindow : Window
 
     private void Window_Closing(object? sender, CancelEventArgs e)
     {
-        if (!ConfirmDiscard()) { e.Cancel = true; return; }
+        foreach (var t in _tabs.ToList())
+        {
+            if (!t.Doc.IsModified) continue;
+            ActivateTab(t);
+            if (!ConfirmDiscard()) { e.Cancel = true; return; }
+        }
         _autosaveTimer.Stop();
-        DeleteAutosave();
+        foreach (var t in _tabs) DeleteAutosave(t);
         _settings.Save();
     }
 }

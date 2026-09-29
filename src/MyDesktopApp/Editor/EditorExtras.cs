@@ -10,6 +10,9 @@ public sealed partial class CadEditor
 
     public string LastCommand => _lastCommand;
 
+    /// <summary>DENETLE komutu (pencereyi ana pencere açar).</summary>
+    public event Action? AuditRequested;
+
     /// <summary>Kullanıcı kısa adlarını uygular. Geçersiz olanları (bilinmeyen komut / yerleşik kısa adla çakışan) döndürür.</summary>
     public List<string> SetCustomAliases(IEnumerable<KeyValuePair<string, string>> map)
     {
