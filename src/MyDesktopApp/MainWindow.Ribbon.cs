@@ -93,6 +93,12 @@ public partial class MainWindow
         public const string Close = "M5,5 L19,19 M19,5 L5,19";
         public const string Exit = "M14,4 H20 V20 H14 M4,12 H15 M11,8 L15,12 L11,16";
         public const string Recent = "M3,12 A9,9 0 1 0 21,12 A9,9 0 1 0 3,12 M12,7 V12 L15.5,14";
+        public const string MText = "M3,20 L8,6 L13,20 M5,15 H11";
+        public const string MTextA = "M15,8 H21 M15,12 H21 M15,16 H21 M15,20 H19";
+        public const string TextEdit = "M3,18 L8,4 L13,18 M5,13 H11";
+        public const string TextEditA = "M13,21 L14,17.5 L20.5,11 L23,13.5 L16.5,20 Z";
+        public const string Solid = "M12,3 L20,7.5 V16.5 L12,21 L4,16.5 V7.5 Z M4,7.5 L12,12 L20,7.5 M12,12 V21";
+        public const string SolidA = "M4,7.5 L12,3 L20,7.5 L12,12 Z";
         public const string Ungroup = "M4,4 H11 V11 H4 Z M13,13 H20 V20 H13 Z M14,4 L20,10 M20,4 L14,10";
     }
 
@@ -362,7 +368,7 @@ public partial class MainWindow
                     SmallCmd("Dikdörtgen", Ico.Rect, null, "RECTANG", "REC"),
                     SmallCmd("Daire", Ico.Circle, Ico.CircleA, "CIRCLE", "C"),
                     SmallCmd("Yay", Ico.Arc, null, "ARC", "A", "Üç noktadan yay"),
-                    SmallCmd("Yazı", Ico.Text, null, "TEXT", "DT"))),
+                    SmallCmd("Metin", Ico.MText, Ico.MTextA, "MTEXT", "MT", "Çok satırlı metin: pencerede yazın, sonra konumu tıklayın"))),
             RibGroup("Değiştir",
                 LargeCmd("Taşı", Ico.Move, null, "MOVE", "M"),
                 Stack3(
@@ -403,8 +409,11 @@ public partial class MainWindow
                     SmallCmd("Açı", Ico.DimAng, null, "DIMANGULAR", "DAN"))),
             RibGroup("Tarama",
                 LargeCmd("Tarama", Ico.Hatch, Ico.HatchA, "HATCH", "H", "Kapalı alanın içine tıklayın")),
-            RibGroup("Yazı",
-                LargeCmd("Yazı", Ico.Text, null, "TEXT", "DT")),
+            RibGroup("Metin",
+                LargeCmd("Metin\nEkle", Ico.MText, Ico.MTextA, "MTEXT", "MT", "Çok satırlı metin, yükseklik, açı ve 9 noktalı hizalama.\nPencerede yazın, sonra konumu tıklayın."),
+                Stack3(
+                    SmallCmd("Metni düzenle", Ico.TextEdit, Ico.TextEditA, "TEXTEDIT", "ED", "Seçili yazıyı düzenler. Yazıya çift tıklamak da olur."),
+                    SmallCmd("Tek satır", Ico.Text, null, "TEXT", "DT", "Komut satırından tek satırlı yazı"))),
             RibGroup("Sorgula",
                 Stack3(
                     SmallCmd("Mesafe", Ico.Dist, null, "DIST", "DI"),
@@ -451,7 +460,8 @@ public partial class MainWindow
 
         var tools = TabBody(
             RibGroup("Görünüm",
-                LargeCmd("Tümünü\nGöster", Ico.Zoom, null, "ZOOMEXTENTS", "ZE", "Orta tuşa çift tık da aynı işi yapar")),
+                LargeCmd("Tümünü\nGöster", Ico.Zoom, null, "ZOOMEXTENTS", "ZE", "Orta tuşa çift tık da aynı işi yapar"),
+                LargeBtn("3B Katı\nGörünüşü", Ico.Solid, Ico.SolidA, () => Act(SolidView_Click), null, "Dosyadaki 3B katıları üstten / önden / yandan görünüşe çevirir")),
             RibGroup("Araçlar",
                 LargeBtn("Kütüphane", Ico.Library, null, () => Act(() => OpenLibrary()), "Ctrl+L"),
                 LargeBtn("Toplu\nİşlem", Ico.Batch, null, () => Act(() => Batch_Click(this, new RoutedEventArgs()))),

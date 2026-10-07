@@ -117,11 +117,20 @@ public static class DxfR12Writer
                     G(0, "SEQEND"); G(8, LayerName(e.Layer));
                     break;
                 case TextEntity t:
-                    Common("TEXT");
-                    D(10, t.Position.X); D(20, t.Position.Y); D(30, 0); D(40, t.Height);
-                    G(1, t.Value.Replace("\r", " ").Replace("\n", " "));
-                    if (Math.Abs(t.Rotation) > 1e-12) D(50, GeoUtil.RadToDeg(t.Rotation));
-                    break;
+                    {
+                        // R12'de çok satırlı yazı yok: her satır ayrı TEXT
+                        var lines = t.Lines;
+                        for (int li = 0; li < lines.Length; li++)
+                        {
+                            if (lines[li].Length == 0) continue;
+                            var o = t.LineOrigin(li);
+                            Common("TEXT");
+                            D(10, o.X); D(20, o.Y); D(30, 0); D(40, t.Height);
+                            G(1, lines[li]);
+                            if (Math.Abs(t.Rotation) > 1e-12) D(50, GeoUtil.RadToDeg(t.Rotation));
+                        }
+                        break;
+                    }
             }
         }
         G(0, "ENDSEC");

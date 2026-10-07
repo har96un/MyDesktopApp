@@ -252,7 +252,17 @@ public partial class MainWindow
                 }
 
             case TextEntity t:
-                PropText("Metin", t.Value, s => EditSelection(() => t.Value = s));
+                if (t.Lines.Length == 1)
+                    PropText("Metin", t.Value, s => EditSelection(() => t.Value = s));
+                else
+                    PropText("Metin", $"({t.Lines.Length} satır) " + t.Lines[0], null);
+                {
+                    var eb = new Button { Content = "Metni düzenle... (çift tık)", Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(100, 2, 0, 4), Focusable = false, HorizontalAlignment = HorizontalAlignment.Left };
+                    eb.Click += (_, _) => { _editor.EditText(t); InputBox.Focus(); };
+                    PropsPanel.Children.Add(eb);
+                }
+                PropCombo("Hizalama", MyDesktopApp.UI.TextDialog.AlignNames, MyDesktopApp.UI.TextDialog.AlignNames[(int)t.Align],
+                    s => EditSelection(() => t.Align = (TextAlign)Array.IndexOf(MyDesktopApp.UI.TextDialog.AlignNames, s)));
                 PropNum("X", t.Position.X, v => EditSelection(() => t.Position = new Vec2(v, t.Position.Y)));
                 PropNum("Y", t.Position.Y, v => EditSelection(() => t.Position = new Vec2(t.Position.X, v)));
                 PropNum("Yükseklik", t.Height, v => EditSelection(() => t.Height = v), v => v > 0);

@@ -26,7 +26,7 @@ public sealed partial class CadEditor
         Reg("RECTANG", "Dikdörtgen çizer", CmdRect, "REC", "DIKDORTGEN");
         Reg("CIRCLE", "Daire çizer (merkez, yarıçap)", CmdCircle, "C", "DAIRE");
         Reg("ARC", "Üç noktadan yay çizer", CmdArc, "A", "YAY");
-        Reg("TEXT", "Yazı ekler", CmdText, "DT", "T", "YAZI");
+        Reg("TEXT", "Tek satırlı yazı ekler (komut satırından)", CmdText, "DT", "T", "YAZI");
 
         // Değiştirme
         Reg("MOVE", "Taşır", CmdMove, "M", "TASI");
@@ -65,6 +65,7 @@ public sealed partial class CadEditor
         RegisterDimCommands();
         RegisterModifyCommands();
         RegisterBlockCommands();
+        RegisterTextCommands();
         Reg("AUDIT", "Çizimi denetler: şüpheli nesneleri (çok uzak, çok büyük, sıfır boylu, kopya) bulur", () => { AuditRequested?.Invoke(); return Task.CompletedTask; }, "DENETLE");
     }
 
@@ -942,6 +943,7 @@ public sealed partial class CadEditor
         Log("Buda (TR) / Uzat (EX): önceden seçim yapılırsa kenar olarak seçili nesneler, yoksa tüm nesneler kullanılır; parçaya tıklayın.");
         Log("Yuvarla (F) / Pah (CHA): iki çizgi ya da aynı polyline'ın komşu iki parçası. Y/M: yarıçap/mesafe, P: polyline'ın tüm köşeleri.");
         Log("Ölçü: DLI (doğrusal), DAL (paralel), DRA (yarıçap), DDI (çap), DAN (açı). Tarama: H, kapalı alanın içine tıklayın.");
+        Log("Metin: MT ile pencereden çok satırlı, hizalamalı metin ekleyin; yazıya çift tıklayınca düzenlenir (ED). DT: tek satır.");
         Log("Blok: B ile seçimden blok oluşturun, I ile ekleyin, X ile patlatın. Referans: BR → sınır kutusunun 9 noktasından birini 0,0'a taşır.");
         Log("Sağ tık (komut yokken): bağlam menüsü. Ctrl+L: profil kütüphanesi, Ctrl+P: PDF raporu. Kısa ad/kısayol: Araçlar → Ayarlar.");
         return Task.CompletedTask;

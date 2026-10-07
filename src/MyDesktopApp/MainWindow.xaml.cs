@@ -451,19 +451,26 @@ public partial class MainWindow : Window
         UpdateTitle();
         UpdatePanel();
         InputBox.Focus();
-        if (loaded && report != null && report.Solids.Count > 0) ChooseSolidView(report, System.IO.Path.GetFileName(path));
+        if (loaded && report != null && report.Solids.Count > 0)
+        {
+            _active!.Solids = report.Solids;
+            ChooseSolidView(report.Solids, System.IO.Path.GetFileName(path), false);
+        }
         if (loaded && !recovered) RunImportAudit(_doc.Entities.ToList(), System.IO.Path.GetFileName(path));
     }
 
     /// <summary>3B katı içeren dosyada görünüşü sorar; üstten dışında seçilirse katıları yeniden izdüşürür.</summary>
-    private void ChooseSolidView(CadFileIO.ImportReport report, string source)
+    private void ChooseSolidView(List<SolidImport> solids, string source, bool fromRibbon)
     {
-        var w = new SolidViewWindow(this, report.Solids, source);
-        var view = w.ShowDialog() == true ? w.Chosen ?? SolidView.Top : SolidView.Top;
+        var w = new SolidViewWindow(this, solids, source);
+        bool ok = w.ShowDialog() == true;
+        if (fromRibbon && !ok) return;
+        var view = ok ? w.Chosen ?? SolidView.Top : SolidView.Top;
         string name = view switch { SolidView.Front => "önden (X–Z)", SolidView.Side => "yandan (Y–Z)", _ => "üstten (X–Y)" };
-        if (view != SolidView.Top)
+        if (view != SolidView.Top || fromRibbon)
         {
-            foreach (var si in report.Solids)
+            if (fromRibbon) _doc.SaveUndo();
+            foreach (var si in solids)
             {
                 _doc.Remove(si.Added);
                 si.Added.Clear();
@@ -477,7 +484,19 @@ public partial class MainWindow : Window
             DrawArea.ZoomExtents();
             UpdatePanel();
         }
-        AppendHistory($"3B katı {name} görünüş olarak 2B çizgilere dönüştürüldü ({report.Solids.Sum(s => s.Added.Count)} nesne).");
+        AppendHistory($"3B katı {name} görünüş olarak 2B çizgilere dönüştürüldü ({solids.Sum(s => s.Added.Count)} nesne).");
+    }
+
+    /// <summary>Şerit: açık çizimdeki 3B katıların görünüşünü değiştirir.</summary>
+    private void SolidView_Click()
+    {
+        if (_active == null || _active.Solids.Count == 0)
+        {
+            MessageBox.Show(this, "Bu çizimde 3B katı yok.\nDWG/DXF içinde 3B katı (3DSOLID) bulunan bir dosya açıldığında kullanılabilir.", "3B Katı Görünüşü");
+            return;
+        }
+        if (_editor.IsBusy) _editor.CancelCommand();
+        ChooseSolidView(_active.Solids, _active.Name, true);
     }
 
     private async void Import_Click(object sender, RoutedEventArgs e)

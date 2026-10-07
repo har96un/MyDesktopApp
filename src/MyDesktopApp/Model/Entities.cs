@@ -301,13 +301,28 @@ public sealed class PolylineEntity : Entity
     }
 }
 
+/// <summary>Yazı hizalaması (eklenme noktasının metin kutusundaki yeri).</summary>
+public enum TextAlign
+{
+    BottomLeft, BottomCenter, BottomRight,
+    MiddleLeft, MiddleCenter, MiddleRight,
+    TopLeft, TopCenter, TopRight
+}
+
+/// <summary>Tek veya çok satırlı yazı. Position, hizalamaya göre eklenme noktasıdır.</summary>
 public sealed class TextEntity : Entity
 {
+    /// <summary>Satır aralığı (yazı yüksekliğinin katı; AutoCAD MText ≈ 5/3).</summary>
+    public const double LineSpacingFactor = 5.0 / 3.0;
+    /// <summary>Karakter genişliği tahmini (yüksekliğin katı).</summary>
+    public const double CharWidthFactor = 0.7;
+
     public Vec2 Position { get; set; }
     public double Height { get; set; } = 2.5;
     /// <summary>Radyan.</summary>
     public double Rotation { get; set; }
     public string Value { get; set; } = "";
+    public TextAlign Align { get; set; } = TextAlign.BottomLeft;
 
     public TextEntity(Vec2 position, double height, double rotation, string value)
     {
@@ -317,15 +332,51 @@ public sealed class TextEntity : Entity
         Value = value;
     }
 
-    public override string TypeName => "Yazı";
+    public override string TypeName => Lines.Length > 1 ? "Çok satırlı yazı" : "Yazı";
 
-    public double ApproxWidth => Math.Max(1, Value.Length) * Height * 0.7;
+    public string[] Lines => Value.Replace("\r", "").Split('\n');
+
+    public double LineWidth(string line) => Math.Max(1, line.Length) * Height * CharWidthFactor;
+
+    public double ApproxWidth => Lines.Max(LineWidth);
+
+    private int Col => (int)Align % 3;   // 0 sol, 1 orta, 2 sağ
+    private int Row => (int)Align / 3;   // 0 alt, 1 orta, 2 üst
+
+    /// <summary>İlk satırın taban çizgisine göre kutunun alt/üst sınırları (yerel y).</summary>
+    private (double Bottom, double Top) VBox()
+    {
+        int n = Lines.Length;
+        return (-(n - 1) * Height * LineSpacingFactor, Height);
+    }
+
+    /// <summary>Hizalamaya göre ilk satır tabanının, eklenme noktasından yerel y kayması.</summary>
+    private double BaseShift()
+    {
+        var (b, t) = VBox();
+        return Row switch { 0 => -b, 1 => -(b + t) / 2, _ => -t };
+    }
+
+    /// <summary>i. satırın sol-taban noktası (dünya koordinatı).</summary>
+    public Vec2 LineOrigin(int i)
+    {
+        var lines = Lines;
+        double w = LineWidth(lines[i]);
+        double x = Col switch { 0 => 0, 1 => -w / 2, _ => -w };
+        double y = BaseShift() - i * Height * LineSpacingFactor;
+        return Position + Vec2.Polar(x, Rotation) + Vec2.Polar(y, Rotation + Math.PI / 2);
+    }
 
     private Vec2[] Corners()
     {
-        var dx = Vec2.Polar(ApproxWidth, Rotation);
-        var dy = Vec2.Polar(Height, Rotation + Math.PI / 2);
-        return new[] { Position, Position + dx, Position + dx + dy, Position + dy };
+        double w = ApproxWidth;
+        var (b, t) = VBox();
+        double sh = BaseShift();
+        double x0 = Col switch { 0 => 0, 1 => -w / 2, _ => -w };
+        var ux = Vec2.Polar(1, Rotation);
+        var uy = Vec2.Polar(1, Rotation + Math.PI / 2);
+        Vec2 L(double x, double y) => Position + ux * x + uy * y;
+        return new[] { L(x0, b + sh), L(x0 + w, b + sh), L(x0 + w, t + sh), L(x0, t + sh) };
     }
 
     public override IEnumerable<Prim> Primitives()
@@ -349,9 +400,12 @@ public sealed class TextEntity : Entity
         double rot = dir.Angle;
         if (m.IsMirroring && dir.X < -1e-9)
         {
-            // Yazıyı okunur tut (AutoCAD MIRRTEXT=0 benzeri)
+            // Yazıyı okunur tut (AutoCAD MIRRTEXT=0 benzeri): ters dönen yazıyı çevir,
+            // hizalamanın sol/sağ tarafı yer değiştirdiği için eklenme noktasını kaydır
             rot += Math.PI;
-            Position -= Vec2.Polar(ApproxWidth, rot);
+            double w = ApproxWidth;
+            double shift = Col switch { 0 => -w, 1 => 0, _ => w };
+            Position += Vec2.Polar(shift, rot);
         }
         Rotation = GeoUtil.NormalizeAngle(rot);
     }

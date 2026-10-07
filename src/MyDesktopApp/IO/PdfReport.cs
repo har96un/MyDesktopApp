@@ -213,11 +213,16 @@ public static class PdfReport
                 case TextEntity t:
                     {
                         double size = Math.Max(1, t.Height * scale * 1.35);
-                        var at = P(t.Position);
-                        var st = g.Save();
-                        g.RotateAtTransform(-GeoUtil.RadToDeg(t.Rotation), at);
-                        g.DrawString(t.Value, Font(size), XBrushes.Black, at, XStringFormats.BaseLineLeft);
-                        g.Restore(st);
+                        var lines = t.Lines;
+                        for (int li = 0; li < lines.Length; li++)
+                        {
+                            if (lines[li].Length == 0) continue;
+                            var at = P(t.LineOrigin(li));
+                            var st = g.Save();
+                            g.RotateAtTransform(-GeoUtil.RadToDeg(t.Rotation), at);
+                            g.DrawString(lines[li], Font(size), XBrushes.Black, at, XStringFormats.BaseLineLeft);
+                            g.Restore(st);
+                        }
                         break;
                     }
                 case DimensionEntity d:

@@ -347,15 +347,29 @@ public static class CadFileIO
 
             case AE.TextEntity t:
                 {
-                    var p = Ocs(t.InsertPoint, t.Normal);
-                    Add(new Model.TextEntity(p, t.Height, t.Rotation, t.Value ?? ""));
+                    // Sol-taban dışındaki hizalamalarda konum hizalama noktasıdır
+                    int h = (int)t.HorizontalAlignment, v = (int)t.VerticalAlignment;
+                    bool aligned = (h != 0 || v != 0) && (h is 1 or 2 or 4);
+                    var p = Ocs(aligned ? t.AlignmentPoint : t.InsertPoint, t.Normal);
+                    var te = new Model.TextEntity(p, t.Height, t.Rotation, t.Value ?? "");
+                    if (aligned)
+                    {
+                        int col = h switch { 1 or 4 => 1, 2 => 2, _ => 0 };
+                        int row = h == 4 ? 1 : v switch { 2 => 1, 3 => 2, _ => 0 };
+                        te.Align = (TextAlign)(row * 3 + col);
+                    }
+                    Add(te);
                     break;
                 }
 
             case AE.MText mt:
                 {
-                    string val = StripMText(mt.Value ?? "");
-                    Add(new Model.TextEntity(V(mt.InsertPoint) - new Vec2(0, mt.Height), mt.Height, mt.Rotation, val));
+                    string val = StripMText(mt.Value ?? "").TrimEnd('\n');
+                    var te = new Model.TextEntity(V(mt.InsertPoint), mt.Height, mt.Rotation, val);
+                    // MText bağlantı noktası 1..9 (sol üst → sağ alt)
+                    int ap = Math.Clamp((int)mt.AttachmentPoint, 1, 9) - 1;
+                    te.Align = (TextAlign)((2 - ap / 3) * 3 + ap % 3);
+                    Add(te);
                     break;
                 }
 
@@ -737,7 +751,7 @@ public static class CadFileIO
             if (ch == '\\' && i + 1 < s.Length)
             {
                 char k = s[i + 1];
-                if (k == 'P') { sb.Append(' '); i++; continue; }
+                if (k == 'P') { sb.Append('\n'); i++; continue; }
                 if ("fFHWQTACcpL".IndexOf(k) >= 0 || k == 'l' || k == 'O' || k == 'o' || k == 'K' || k == 'k')
                 {
                     int semi = s.IndexOf(';', i);
@@ -1113,13 +1127,31 @@ public static class CadFileIO
                     break;
                 }
             case Model.TextEntity t:
-                yield return new AE.TextEntity
+                if (t.Lines.Length == 1 && t.Align == TextAlign.BottomLeft)
                 {
-                    InsertPoint = P(t.Position),
-                    Height = t.Height,
-                    Rotation = t.Rotation,
-                    Value = t.Value
-                };
+                    yield return new AE.TextEntity
+                    {
+                        InsertPoint = P(t.Position),
+                        Height = t.Height,
+                        Rotation = t.Rotation,
+                        Value = t.Value
+                    };
+                }
+                else
+                {
+                    // Çok satırlı veya hizalı yazı: MText (bağlantı noktası hizalamayı korur)
+                    int a = (int)t.Align;
+                    int ap = (2 - a / 3) * 3 + a % 3 + 1;
+                    yield return new AE.MText
+                    {
+                        InsertPoint = P(t.Position),
+                        Height = t.Height,
+                        // MText dönüşü X ekseni yön vektörüyle verilir
+                        AlignmentPoint = new XYZ(Math.Cos(t.Rotation), Math.Sin(t.Rotation), 0),
+                        AttachmentPoint = (AE.AttachmentPointType)ap,
+                        Value = string.Join("\\P", t.Lines.Select(l => l.Replace("\\", "\\\\").Replace("{", "\\{").Replace("}", "\\}")))
+                    };
+                }
                 break;
         }
     }

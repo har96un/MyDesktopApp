@@ -17,6 +17,8 @@ public partial class MainWindow
         public CadEditor Editor = null!;
         public (double Scale, Point Offset)? View;
         public Border? Header;
+        /// <summary>Açılan dosyadaki 3B katılar (görünüş değiştirmek için).</summary>
+        public List<IO.SolidImport> Solids = new();
         public TextBlock? Label;
         public string Name => Doc.FilePath != null ? System.IO.Path.GetFileName(Doc.FilePath) : $"Adsız{Id}";
     }
@@ -42,6 +44,7 @@ public partial class MainWindow
         t.Editor.RequestFileNew += () => NewTab();
         t.Editor.IdleRightClick += () => { if (t == _active) ShowCanvasContextMenu(); };
         t.Editor.AuditRequested += () => { if (t == _active) Audit_Click(this, new RoutedEventArgs()); };
+        t.Editor.TextDialog = (init, title) => MyDesktopApp.UI.TextDialog.Show(this, init, title);
         t.Doc.Changed += (_, _) =>
         {
             if (t != _active) return;

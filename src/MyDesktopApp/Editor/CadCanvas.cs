@@ -189,6 +189,11 @@ public sealed class CadCanvas : FrameworkElement
             return;
         }
         if (_editor == null) return;
+        if (e.ChangedButton == MouseButton.Left && e.ClickCount == 2 && _editor.LeftDoubleClick(ToWorld(pos)))
+        {
+            e.Handled = true;
+            return;
+        }
         if (e.ChangedButton == MouseButton.Left)
         {
             CaptureMouse();
@@ -706,21 +711,34 @@ public sealed class CadCanvas : FrameworkElement
     private void DrawText(DrawingContext dc, TextEntity t, Brush brush)
     {
         double em = t.Height * _scale / 0.7;
+        var lines = t.Lines;
         if (em < 2)
         {
-            // Çok küçük: yalnızca taban çizgisi
-            var p1 = ToScreen(t.Position);
-            var p2 = ToScreen(t.Position + Vec2.Polar(t.ApproxWidth, t.Rotation));
-            dc.DrawLine(new Pen(brush, 1), p1, p2);
+            // Çok küçük: yalnızca taban çizgileri
+            var pen = new Pen(brush, 1);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var o = t.LineOrigin(i);
+                dc.DrawLine(pen, ToScreen(o), ToScreen(o + Vec2.Polar(t.LineWidth(lines[i]), t.Rotation)));
+            }
             return;
         }
         if (em > 2000) return;
-        var ft = new FormattedText(t.Value, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, _typeface, em, brush,
-            VisualTreeHelper.GetDpi(this).PixelsPerDip);
-        var sp = ToScreen(t.Position);
-        dc.PushTransform(new RotateTransform(-GeoUtil.RadToDeg(t.Rotation), sp.X, sp.Y));
-        dc.DrawText(ft, new Point(sp.X, sp.Y - ft.Baseline));
-        dc.Pop();
+        double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        for (int i = 0; i < lines.Length; i++)
+        {
+            if (lines[i].Length == 0) continue;
+            var ft = new FormattedText(lines[i], CultureInfo.CurrentCulture, FlowDirection.LeftToRight, _typeface, em, brush, dpi);
+            // Tahmini genişliğe sığdır (hizalama ve seçim kutusu tahmini genişliğe göre)
+            double want = t.LineWidth(lines[i]) * _scale;
+            double sx = ft.Width > 1e-6 ? Math.Clamp(want / ft.Width, 0.5, 2.0) : 1;
+            var sp = ToScreen(t.LineOrigin(i));
+            dc.PushTransform(new RotateTransform(-GeoUtil.RadToDeg(t.Rotation), sp.X, sp.Y));
+            dc.PushTransform(new ScaleTransform(sx, 1, sp.X, sp.Y));
+            dc.DrawText(ft, new Point(sp.X, sp.Y - ft.Baseline));
+            dc.Pop();
+            dc.Pop();
+        }
     }
 
     public void RedrawOverlay()

@@ -243,6 +243,8 @@ public partial class MainWindow
             m.Items.Add(CtxCmd("Grubu çöz", "UNGROUP", "UG"));
             m.Items.Add(CtxCmd("Patlat", "EXPLODE", "X"));
             m.Items.Add(new Separator());
+            if (_doc.Selection.Count == 1 && _doc.Selection.First() is TextEntity selText)
+                m.Items.Add(CtxItem("Metni düzenle...", () => _editor.EditText(selText), "çift tık"));
             m.Items.Add(CtxCmd("Blok oluştur", "BLOCK", "B"));
             m.Items.Add(CtxItem("Sol alt → 0,0", () => _ = _editor.MoveBoxPointToOrigin(0, 0)));
             m.Items.Add(CtxItem("Merkez → 0,0", () => _ = _editor.MoveBoxPointToOrigin(0.5, 0.5)));
@@ -258,6 +260,7 @@ public partial class MainWindow
             m.Items.Add(CtxCmd("Polyline", "PLINE", "PL"));
             m.Items.Add(CtxCmd("Dikdörtgen", "RECTANG", "REC"));
             m.Items.Add(CtxCmd("Daire", "CIRCLE", "C"));
+            m.Items.Add(CtxCmd("Metin ekle...", "MTEXT", "MT"));
             m.Items.Add(new Separator());
             m.Items.Add(CtxCmd("Buda", "TRIM", "TR"));
             m.Items.Add(CtxCmd("Yuvarla", "FILLET", "F"));
