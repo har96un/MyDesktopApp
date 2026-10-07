@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ed="clr-namespace:MyDesktopApp.Editor"
         Title="Profil CAD" Height="820" Width="1320"
+        Icon="pack://application:,,,/Assets/ProfilCAD.ico"
         WindowStartupLocation="CenterScreen"
         PreviewKeyDown="Window_PreviewKeyDown"
         Closing="Window_Closing"

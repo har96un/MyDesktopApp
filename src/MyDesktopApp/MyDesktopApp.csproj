@@ -12,7 +12,12 @@
     <Version>0.2.0</Version>
     <Company>Profil CAD</Company>
     <Copyright>Harun Şimşek</Copyright>
+    <ApplicationIcon>Assets\ProfilCAD.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\ProfilCAD.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <!-- DWG / DXF okuma-yazma (MIT lisanslı) -->

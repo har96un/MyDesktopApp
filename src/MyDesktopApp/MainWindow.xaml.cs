@@ -9,6 +9,7 @@ using MyDesktopApp.Editor;
 using MyDesktopApp.Geometry;
 using MyDesktopApp.IO;
 using MyDesktopApp.Model;
+using MyDesktopApp.UI;
 
 namespace MyDesktopApp;
 
@@ -420,11 +421,12 @@ public partial class MainWindow : Window
         _editor.CancelCommand();
         var tmp = new CadDocument();
         bool loaded = false;
+        CadFileIO.ImportReport? report = null;
         try
         {
             Mouse.OverrideCursor = Cursors.Wait;
             AppendHistory($"Açılıyor: {path}");
-            var report = await Task.Run(() => CadFileIO.Load(path, tmp));
+            report = await Task.Run(() => CadFileIO.Load(path, tmp));
             _doc.Clear();
             _doc.Merge(tmp);
             _doc.FilePath = recovered ? (string.IsNullOrEmpty(originalPath) ? null : originalPath) : path;
@@ -449,7 +451,33 @@ public partial class MainWindow : Window
         UpdateTitle();
         UpdatePanel();
         InputBox.Focus();
+        if (loaded && report != null && report.Solids.Count > 0) ChooseSolidView(report, System.IO.Path.GetFileName(path));
         if (loaded && !recovered) RunImportAudit(_doc.Entities.ToList(), System.IO.Path.GetFileName(path));
+    }
+
+    /// <summary>3B katı içeren dosyada görünüşü sorar; üstten dışında seçilirse katıları yeniden izdüşürür.</summary>
+    private void ChooseSolidView(CadFileIO.ImportReport report, string source)
+    {
+        var w = new SolidViewWindow(this, report.Solids, source);
+        var view = w.ShowDialog() == true ? w.Chosen ?? SolidView.Top : SolidView.Top;
+        string name = view switch { SolidView.Front => "önden (X–Z)", SolidView.Side => "yandan (Y–Z)", _ => "üstten (X–Y)" };
+        if (view != SolidView.Top)
+        {
+            foreach (var si in report.Solids)
+            {
+                _doc.Remove(si.Added);
+                si.Added.Clear();
+                foreach (var e in CadFileIO.ProjectSolid(si, view))
+                {
+                    _doc.Add(e);
+                    si.Added.Add(e);
+                }
+            }
+            _doc.RaiseChanged();
+            DrawArea.ZoomExtents();
+            UpdatePanel();
+        }
+        AppendHistory($"3B katı {name} görünüş olarak 2B çizgilere dönüştürüldü ({report.Solids.Sum(s => s.Added.Count)} nesne).");
     }
 
     private async void Import_Click(object sender, RoutedEventArgs e)

@@ -9,8 +9,63 @@ using AT = ACadSharp.Tables;
 namespace MyDesktopApp.IO;
 
 /// <summary>DWG / DXF okuma ve yazma (ACadSharp kütüphanesi ile).</summary>
+/// <summary>3B katının hangi yönden 2B'ye izdüşürüleceği.</summary>
+public enum SolidView { Top, Front, Side }
+
+/// <summary>İçe aktarılan bir 3B katı: kenarları ve çizime eklenen 2B karşılığı.</summary>
+public sealed class SolidImport
+{
+    public required List<List<P3>> Edges { get; init; }
+    public required string Layer { get; init; }
+    public EntColor? Color { get; init; }
+    public List<Entity> Added { get; } = new();
+}
+
 public static class CadFileIO
 {
+    /// <summary>
+    /// 3B kenarları seçilen görünüşe izdüşürür. Görünüş yönünde nokta olan kenarlar ve
+    /// üst üste düşen kopyalar (ör. ekstrüzyonun ön ve arka yüzü) atılır.
+    /// </summary>
+    public static List<Entity> ProjectSolid(SolidImport si, SolidView view)
+    {
+        Vec2 Pr(P3 p) => view switch
+        {
+            SolidView.Front => new Vec2(p.X, p.Z),
+            SolidView.Side => new Vec2(p.Y, p.Z),
+            _ => new Vec2(p.X, p.Y)
+        };
+        var bb = BBox.Empty;
+        foreach (var e in si.Edges) foreach (var p in e) bb.Add(Pr(p));
+        double q = Math.Max(Math.Max(bb.Width, bb.Height) * 1e-7, 1e-9);
+        string R(double v) => Math.Round(v / q).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        string Key(Vec2 v) => R(v.X) + "," + R(v.Y);
+        var seen = new HashSet<string>();
+        var list = new List<Entity>();
+        foreach (var e in si.Edges)
+        {
+            var pts = new List<Vec2>();
+            foreach (var p in e)
+            {
+                var v = Pr(p);
+                if (pts.Count == 0 || !pts[^1].IsClose(v, q)) pts.Add(v);
+            }
+            if (pts.Count < 2) continue;                          // görünüş yönünde nokta
+            if (pts.Count > 2) pts = GeoUtil.Simplify(pts, q * 10);
+            // Yönden bağımsız imza (kopya kenarları ayıklamak için)
+            var k1 = string.Join(";", pts.Select(Key));
+            var k2 = string.Join(";", Enumerable.Reverse(pts).Select(Key));
+            if (!seen.Add(string.CompareOrdinal(k1, k2) < 0 ? k1 : k2)) continue;
+            Entity ent = pts.Count == 2
+                ? new LineEntity(pts[0], pts[1])
+                : new PolylineEntity(pts, false);
+            ent.Layer = si.Layer;
+            ent.Color = si.Color;
+            list.Add(ent);
+        }
+        return list;
+    }
+
     public sealed class ImportReport
     {
         public int Imported { get; set; }
@@ -21,6 +76,8 @@ public static class CadFileIO
         public string VersionName { get; set; } = "";
         /// <summary>Aynı sürümle kaydetmek için önerilen kayıt biçimi.</summary>
         public string? FormatId { get; set; }
+        /// <summary>Dosyadaki 3B katı/bölge nesneleri (kenar tel kafesi) — görünüş değiştirmek için saklanır.</summary>
+        public List<SolidImport> Solids { get; } = new();
 
         public void Skip(string type)
         {
@@ -357,6 +414,29 @@ public static class CadFileIO
                             }
                     }
                     catch { /* öznitelik okunamadı */ }
+                    break;
+                }
+
+            case AE.ModelerGeometry mg:
+                {
+                    // 3B katı / bölge / gövde: ACIS verisinden kenar tel kafesi, üstten görünüş
+                    List<List<P3>> edges;
+                    try { edges = AcisReader.ReadEdges(mg.AcisData, mg.ProprietaryData?.ToString()); }
+                    catch (Exception ex)
+                    {
+                        rep.Skip(e.GetType().Name);
+                        rep.Notes.Add("3B katı okunamadı: " + ex.Message);
+                        break;
+                    }
+                    if (edges.Count == 0) { rep.Skip(e.GetType().Name); break; }
+                    var si = new SolidImport { Edges = edges, Layer = layer, Color = color };
+                    foreach (var ent in ProjectSolid(si, SolidView.Top))
+                    {
+                        doc.Add(ent);
+                        si.Added.Add(ent);
+                        rep.Imported++;
+                    }
+                    if (depth == 0) rep.Solids.Add(si);
                     break;
                 }
 
