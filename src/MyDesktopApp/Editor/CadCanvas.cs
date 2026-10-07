@@ -484,7 +484,7 @@ public sealed class CadCanvas : FrameworkElement
                     if ((last - ToScreen(seg.StartPoint)).LengthSquared > 0.36) ctx.LineTo(ToScreen(seg.StartPoint), true, false);
                     double sweep = GeoUtil.Sweep(arc.Start, arc.End);
                     double r = arc.Radius * _scale;
-                    var dir = arc.Reversed ? SweepDirection.Counterclockwise : SweepDirection.Clockwise;
+                    var dir = arc.Reversed ? SweepDirection.Clockwise : SweepDirection.Counterclockwise;
                     ctx.ArcTo(bp, new Size(r, r), 0, sweep > Math.PI, dir, true, false);
                 }
                 else ctx.LineTo(bp, true, false);
@@ -530,7 +530,7 @@ public sealed class CadCanvas : FrameworkElement
                         if (r < 1) ctx.LineTo(ep, true, false);
                         else
                         {
-                            var dir = a.Reversed ? SweepDirection.Counterclockwise : SweepDirection.Clockwise;
+                            var dir = a.Reversed ? SweepDirection.Clockwise : SweepDirection.Counterclockwise;
                             ctx.ArcTo(ep, new Size(r, r), 0, sweep > Math.PI, dir, true, false);
                         }
                         cur = ep;
@@ -651,8 +651,8 @@ public sealed class CadCanvas : FrameworkElement
                             }
                             else
                             {
-                                // Dünyada CCW → ekranda (y ters) saat yönü
-                                var dir = a.Reversed ? SweepDirection.Counterclockwise : SweepDirection.Clockwise;
+                                // SweepDirection ekranda görünen yöndür; y ekseni ters çevrildiği için dünyadaki CCW ekranda da CCW görünür
+                                var dir = a.Reversed ? SweepDirection.Clockwise : SweepDirection.Counterclockwise;
                                 ctx.ArcTo(ep, new Size(r, r), 0, sweep > Math.PI, dir, true, false);
                                 cur = ep;
                             }
@@ -747,7 +747,7 @@ public sealed class CadCanvas : FrameworkElement
                     var ep = ToScreen(a.EndPoint);
                     double sweep = GeoUtil.Sweep(a.Start, a.End);
                     double r = a.Radius * _scale;
-                    var dir = a.Reversed ? SweepDirection.Counterclockwise : SweepDirection.Clockwise;
+                    var dir = a.Reversed ? SweepDirection.Clockwise : SweepDirection.Counterclockwise;
                     ctx.ArcTo(ep, new Size(r, r), 0, sweep > Math.PI, dir, true, false);
                     cur = ep;
                 }
