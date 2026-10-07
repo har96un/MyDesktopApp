@@ -25,8 +25,23 @@ public sealed class HatchEntity : Entity
     {
         var c = (HatchEntity)MemberwiseClone();
         c.Loops = Loops.Select(l => new List<PolyVertex>(l)).ToList();
+        // Önbellekler aynı geometriye ait olduğu için paylaşılabilir (değişmez listeler)
         return c;
     }
+
+    // ---------------------------------------------------------------- Önbellek
+    // Desen çizgileri ve çevre çokgenleri her ekran çiziminde ve her tıklamada yeniden
+    // hesaplanıyordu (büyük çizimlerde kare başına yüzlerce ms). Geometri değişince yenilenir.
+    private int _version;
+    private (int Ver, int Loops, int Verts, string Pat, double Scale, double Angle, int Max) _patKey;
+    private List<(Vec2 A, Vec2 B)>? _patCache;
+    private (int Ver, int Loops, int Verts) _polyKey;
+    private List<List<Vec2>>? _polyCache;
+
+    private int VertexCount() { int n = 0; foreach (var l in Loops) n += l.Count; return n; }
+
+    /// <summary>Çevreler dışarıdan değiştirildiyse önbelleği geçersiz kılar.</summary>
+    public void Invalidate() => _version++;
 
     public static IEnumerable<Prim> LoopPrims(List<PolyVertex> loop)
     {
@@ -46,8 +61,18 @@ public sealed class HatchEntity : Entity
 
     public override IEnumerable<Prim> Primitives() => Loops.SelectMany(LoopPrims);
 
-    /// <summary>Çevreleri çokgen olarak döndürür (yaylar parçalanmış).</summary>
+    /// <summary>Çevreleri çokgen olarak döndürür (yaylar parçalanmış). Sonuç önbelleklidir; değiştirmeyin.</summary>
     public List<List<Vec2>> LoopPolygons()
+    {
+        var key = (_version, Loops.Count, VertexCount());
+        if (_polyCache != null && _polyKey == key) return _polyCache;
+        var res = BuildLoopPolygons();
+        _polyKey = key;
+        _polyCache = res;
+        return res;
+    }
+
+    private List<List<Vec2>> BuildLoopPolygons()
     {
         var res = new List<List<Vec2>>();
         foreach (var loop in Loops)
@@ -80,6 +105,7 @@ public sealed class HatchEntity : Entity
     public override void Transform(Mat2D m)
     {
         bool mir = m.IsMirroring;
+        _version++;
         foreach (var loop in Loops)
             for (int i = 0; i < loop.Count; i++)
                 loop[i] = new PolyVertex(m.Apply(loop[i].P), mir ? -loop[i].Bulge : loop[i].Bulge);
@@ -111,8 +137,18 @@ public sealed class HatchEntity : Entity
         }
     }
 
-    /// <summary>Desen çizgilerini çevrelere kırpılmış doğru parçaları olarak üretir.</summary>
+    /// <summary>Desen çizgilerini çevrelere kırpılmış doğru parçaları olarak üretir (önbellekli; değiştirmeyin).</summary>
     public List<(Vec2 A, Vec2 B)> PatternSegments(int maxLines = 3000)
+    {
+        var key = (_version, Loops.Count, VertexCount(), Pattern, Scale, Angle, maxLines);
+        if (_patCache != null && _patKey == key) return _patCache;
+        var res = BuildPatternSegments(maxLines);
+        _patKey = key;
+        _patCache = res;
+        return res;
+    }
+
+    private List<(Vec2 A, Vec2 B)> BuildPatternSegments(int maxLines)
     {
         var result = new List<(Vec2, Vec2)>();
         if (IsSolid) return result;

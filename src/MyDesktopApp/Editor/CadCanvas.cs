@@ -279,6 +279,8 @@ public sealed class CadCanvas : FrameworkElement
     }
 
     /// <summary>Aynı kalemle çizilecek çizgileri tek geometride toplar (binlerce ayrı çizim çağrısı yerine).</summary>
+    private Dictionary<Brush, LineBatch>? _fillBatches;
+
     private sealed class LineBatch
     {
         public readonly StreamGeometry Geo = new();
@@ -304,6 +306,7 @@ public sealed class CadCanvas : FrameworkElement
         var view = ViewBox();
         var doc = _editor.Doc;
         var batches = new Dictionary<Pen, LineBatch>();
+        _fillBatches = new Dictionary<Brush, LineBatch>();
         LineBatch BatchFor(Pen pen)
         {
             if (!batches.TryGetValue(pen, out var lb)) batches[pen] = lb = new LineBatch();
@@ -336,6 +339,13 @@ public sealed class CadCanvas : FrameworkElement
             lb.Geo.Freeze();
             dc.DrawGeometry(null, pen, lb.Geo);
         }
+        foreach (var (brush, fb) in _fillBatches)
+        {
+            fb.Ctx.Close();
+            fb.Geo.Freeze();
+            dc.DrawGeometry(brush, null, fb.Geo);
+        }
+        _fillBatches = null;
         if (sel != null)
         {
             sel.Ctx.Close();
@@ -363,6 +373,46 @@ public sealed class CadCanvas : FrameworkElement
                 // Çok küçük ölçü: yazısız, yalnızca geometrisi
                 AddPrims(batchFor(pen).Ctx, e.Primitives());
                 return;
+            case HatchEntity h when !h.IsSolid:
+                {
+                    // Desen çizgileri de kalem grubuna (binlerce ayrı DrawLine yerine tek geometri)
+                    var hctx = batchFor(pen).Ctx;
+                    double spacingPx = HatchEntity.BaseSpacing * h.Scale * _scale;
+                    if (spacingPx >= 2)
+                        foreach (var (a, bb) in h.PatternSegments())
+                        {
+                            hctx.BeginFigure(ToScreen(a), false, false);
+                            hctx.LineTo(ToScreen(bb), true, false);
+                        }
+                    else
+                        foreach (var loop in h.Loops) AddPrims(hctx, HatchEntity.LoopPrims(loop));
+                    return;
+                }
+            case DimensionEntity dim when _fillBatches != null:
+                {
+                    // Ölçü çizgileri ve okları da gruplanır; yalnızca yazılar tek tek çizilir
+                    var g = dim.Build();
+                    var dctx = batchFor(pen).Ctx;
+                    foreach (var (a, bb) in g.Lines)
+                    {
+                        dctx.BeginFigure(ToScreen(a), false, false);
+                        dctx.LineTo(ToScreen(bb), true, false);
+                    }
+                    if (g.Arcs.Count > 0) AddPrims(dctx, g.Arcs);
+                    if (g.Arrows.Count > 0)
+                    {
+                        if (!_fillBatches.TryGetValue(pen.Brush, out var fb)) _fillBatches[pen.Brush] = fb = new LineBatch();
+                        foreach (var tri in g.Arrows)
+                        {
+                            fb.Ctx.BeginFigure(ToScreen(tri[0]), true, true);
+                            fb.Ctx.LineTo(ToScreen(tri[1]), true, false);
+                            fb.Ctx.LineTo(ToScreen(tri[2]), true, false);
+                        }
+                    }
+                    foreach (var (anchor, rot, th, text) in g.Texts)
+                        DrawCenteredText(dc, text, anchor, rot, th, pen.Brush);
+                    return;
+                }
             case TextEntity or DimensionEntity or HatchEntity:
                 DrawEntity(dc, e, pen, pen.Brush);
                 return;
@@ -641,8 +691,7 @@ public sealed class CadCanvas : FrameworkElement
     {
         double em = height * _scale / 0.7;
         if (em < 2 || em > 2000) return;
-        var ft = new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, _typeface, em, brush,
-            VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        var ft = Ft(text, em, brush);
         var sp = ToScreen(anchor);
         dc.PushTransform(new RotateTransform(-GeoUtil.RadToDeg(rotation), sp.X, sp.Y));
         dc.DrawText(ft, new Point(sp.X - ft.Width / 2, sp.Y - ft.Baseline));
@@ -708,6 +757,21 @@ public sealed class CadCanvas : FrameworkElement
         dc.DrawGeometry(null, pen, geo);
     }
 
+    // Yazı biçimleme (FormattedText) pahalıdır; aynı metin/boyut/renk için yeniden kullanılır.
+    private readonly Dictionary<(string Text, int Em, Brush Brush), FormattedText> _ftCache = new();
+
+    private FormattedText Ft(string text, double em, Brush brush)
+    {
+        int q = (int)Math.Round(em * 4);                    // çeyrek piksel hassasiyet
+        var key = (text, q, brush);
+        if (_ftCache.TryGetValue(key, out var ft)) return ft;
+        if (_ftCache.Count > 20000) _ftCache.Clear();
+        ft = new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, _typeface, q / 4.0, brush,
+            VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        _ftCache[key] = ft;
+        return ft;
+    }
+
     private void DrawText(DrawingContext dc, TextEntity t, Brush brush)
     {
         double em = t.Height * _scale / 0.7;
@@ -724,11 +788,10 @@ public sealed class CadCanvas : FrameworkElement
             return;
         }
         if (em > 2000) return;
-        double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         for (int i = 0; i < lines.Length; i++)
         {
             if (lines[i].Length == 0) continue;
-            var ft = new FormattedText(lines[i], CultureInfo.CurrentCulture, FlowDirection.LeftToRight, _typeface, em, brush, dpi);
+            var ft = Ft(lines[i], em, brush);
             // Tahmini genişliğe sığdır (hizalama ve seçim kutusu tahmini genişliğe göre)
             double want = t.LineWidth(lines[i]) * _scale;
             double sx = ft.Width > 1e-6 ? Math.Clamp(want / ft.Width, 0.5, 2.0) : 1;
