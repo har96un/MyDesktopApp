@@ -35,13 +35,15 @@ jobs:
           $v = "0.2.${{ github.run_number }}"
           "version=$v" >> $env:GITHUB_OUTPUT
 
-      - name: Yayınla (tek dosya, self-contained, win-x64)
+      # ReadyToRun: kod önceden derlenir; büyük DWG açılışı ve ilk çizimler yaklaşık 2 kat hızlanır.
+      # Tek dosya sıkıştırması kapalı (her açılışta açılması zaman alıyordu); kurulum dosyası Inno Setup ile zaten sıkıştırılır.
+      - name: Yayınla (tek dosya, self-contained, ReadyToRun, win-x64)
         run: >
           dotnet publish src/MyDesktopApp/MyDesktopApp.csproj -c Release -r win-x64
           --self-contained true
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
-          -p:EnableCompressionInSingleFile=true
+          -p:PublishReadyToRun=true
           -p:DebugType=none
           -p:Version=${{ steps.ver.outputs.version }}
           -o publish

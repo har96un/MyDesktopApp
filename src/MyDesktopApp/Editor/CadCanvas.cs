@@ -25,8 +25,9 @@ public sealed class CadCanvas : FrameworkElement
     private Point _panOffsetStart;
     private Point _lastMouse;
 
-    private readonly Dictionary<EntColor, Pen> _penCache = new();
-    private readonly Typeface _typeface = new(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+    // Kalemler dondurulmuş olduğundan iş parçacıkları arasında paylaşılabilir; önbellek kilitle korunur.
+    private static readonly Dictionary<EntColor, Pen> _penCache = new();
+    private static readonly Typeface Face = new(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
 
     private static readonly Brush Background = Frozen(new SolidColorBrush(Color.FromRgb(0x1E, 0x23, 0x2B)));
     private static readonly Pen GridMinor = FrozenPen(Color.FromArgb(0x28, 0xFF, 0xFF, 0xFF), 1);
@@ -116,12 +117,14 @@ public sealed class CadCanvas : FrameworkElement
     /// <summary>Birden çok değişikliği tek çizimde birleştirir.</summary>
     public void ScheduleRedraw()
     {
+        _sceneDirty = true;
         if (_redrawScheduled) return;
         _redrawScheduled = true;
         Dispatcher.InvokeAsync(() =>
         {
             _redrawScheduled = false;
-            RedrawAll();
+            // Bu arada sahne zaten yeniden çizildiyse (ör. ZoomExtents) ikinci kez çizme
+            if (_sceneDirty) RedrawAll();
         }, System.Windows.Threading.DispatcherPriority.Render);
     }
 
@@ -255,19 +258,28 @@ public sealed class CadCanvas : FrameworkElement
     private double _lastSceneMs;
     private System.Windows.Threading.DispatcherTimer? _viewTimer;
 
+    // Sahne bu süreden uzun sürüyorsa (büyük çizim) arka planda kurulur; arayüz donmaz,
+    // yeni sahne hazır olana kadar eski görüntü dönüşümle yerinde tutulur.
+    private const double BackgroundThresholdMs = 30;
+    private readonly SceneBuilder _uiBuilder = new();
+    private readonly SceneBuilder _bgBuilder = new();
+    private int _buildGen;          // her sahne isteğinde artar; eski arka plan sonuçları atılır
+    private bool _building;         // arka planda kurulum sürüyor
+    private bool _buildPending;     // kurulum sürerken yeni istek geldi
+    private bool _sceneDirty;
+
     /// <summary>
     /// Görünüm (kaydırma/yakınlaştırma) değişti. Sahne hızlı çiziliyorsa hemen yeniden çizilir;
     /// ağır çizimlerde mevcut görüntü dönüşümle taşınır, fare durunca bir kez yeniden çizilir.
     /// </summary>
     private void ViewChanged()
     {
-        if (_lastSceneMs < 30)
+        if (_lastSceneMs < BackgroundThresholdMs)
         {
             RedrawAll();
             return;
         }
-        double k = _scale / _sceneScale;
-        _scene.Transform = new MatrixTransform(k, 0, 0, k, _offset.X - _sceneOffset.X * k, _offset.Y - _sceneOffset.Y * k);
+        ApplySceneTransform();
         RedrawOverlay();
         if (_viewTimer == null)
         {
@@ -278,8 +290,12 @@ public sealed class CadCanvas : FrameworkElement
         _viewTimer.Start();
     }
 
-    /// <summary>Aynı kalemle çizilecek çizgileri tek geometride toplar (binlerce ayrı çizim çağrısı yerine).</summary>
-    private Dictionary<Brush, LineBatch>? _fillBatches;
+    /// <summary>Son çizilen sahneyi geçerli görünüme taşır (yeniden çizmeden).</summary>
+    private void ApplySceneTransform()
+    {
+        double k = _scale / _sceneScale;
+        _scene.Transform = new MatrixTransform(k, 0, 0, k, _offset.X - _sceneOffset.X * k, _offset.Y - _sceneOffset.Y * k);
+    }
 
     private sealed class LineBatch
     {
@@ -288,258 +304,116 @@ public sealed class CadCanvas : FrameworkElement
         public LineBatch() { Ctx = Geo.Open(); }
     }
 
+    private void PrepareBuilder(SceneBuilder b)
+    {
+        b.Scale = _scale;
+        b.Offset = _offset;
+        b.PixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        b.Doc = _editor?.Doc;
+    }
+
     private void RedrawScene()
     {
         _viewTimer?.Stop();
+        _sceneDirty = false;
+        if (_editor == null)
+        {
+            _buildGen++;
+            Compose(null, _scale, _offset);
+            return;
+        }
+        if (_lastSceneMs >= BackgroundThresholdMs)
+        {
+            RequestBackgroundBuild();
+            return;
+        }
+        _buildGen++;
+        _buildPending = false;
         var sw = System.Diagnostics.Stopwatch.StartNew();
+        PrepareBuilder(_uiBuilder);
+        var doc = _editor.Doc;
+        var g = _uiBuilder.Build(doc, doc.Entities.ToArray(), doc.Selection.ToArray(), ViewBox());
+        _lastSceneMs = sw.Elapsed.TotalMilliseconds;
+        Compose(g, _scale, _offset);
+    }
+
+    /// <summary>
+    /// Sahneyi geçerli görünüm için oluşturur: zemin, ızgara, eksenler ve (başka bir görünüm için
+    /// kurulmuş olabilen) nesne çizimi. Nesne çizimi geçerli görünüme dönüşümle yerleştirilir.
+    /// </summary>
+    private void Compose(DrawingGroup? entities, double builtScale, Point builtOffset)
+    {
         _scene.Transform = null;
         _sceneScale = _scale;
         _sceneOffset = _offset;
-
         using var dc = _scene.RenderOpen();
         dc.DrawRectangle(Background, null, new Rect(0, 0, Math.Max(0, ActualWidth), Math.Max(0, ActualHeight)));
         if (_editor == null) return;
-
         if (_editor.GridEnabled) DrawGrid(dc);
         DrawAxes(dc);
-
-        var view = ViewBox();
-        var doc = _editor.Doc;
-        var batches = new Dictionary<Pen, LineBatch>();
-        _fillBatches = new Dictionary<Brush, LineBatch>();
-        LineBatch BatchFor(Pen pen)
-        {
-            if (!batches.TryGetValue(pen, out var lb)) batches[pen] = lb = new LineBatch();
-            return lb;
-        }
-
-        foreach (var e in doc.Entities)
-        {
-            if (!doc.IsVisible(e)) continue;
-            var b = doc.BoundsOf(e);
-            if (!b.IsEmpty && !view.Intersects(b)) continue;
-            var pen = GetPen(doc.ResolveColor(e));
-            AddToScene(dc, e, b, pen, BatchFor, doc, view, 0);
-        }
-        // Seçim vurgusu da tek geometride
-        LineBatch? sel = null;
-        foreach (var e in doc.Selection)
-        {
-            if (!doc.IsVisible(e)) continue;
-            var b = doc.BoundsOf(e);
-            if (!b.IsEmpty && !view.Intersects(b)) continue;
-            if (e is TextEntity or DimensionEntity or HatchEntity) { DrawEntity(dc, e, SelPen, SelPen.Brush); continue; }
-            sel ??= new LineBatch();
-            AddToScene(dc, e, b, SelPen, _ => sel!, null, view, 0);
-        }
-
-        foreach (var (pen, lb) in batches)
-        {
-            lb.Ctx.Close();
-            lb.Geo.Freeze();
-            dc.DrawGeometry(null, pen, lb.Geo);
-        }
-        foreach (var (brush, fb) in _fillBatches)
-        {
-            fb.Ctx.Close();
-            fb.Geo.Freeze();
-            dc.DrawGeometry(brush, null, fb.Geo);
-        }
-        _fillBatches = null;
-        if (sel != null)
-        {
-            sel.Ctx.Close();
-            sel.Geo.Freeze();
-            dc.DrawGeometry(null, SelPen, sel.Geo);
-        }
-        _lastSceneMs = sw.Elapsed.TotalMilliseconds;
+        if (entities == null) return;
+        double k = _scale / builtScale;
+        bool same = Math.Abs(k - 1) < 1e-12 && Math.Abs(builtOffset.X - _offset.X) < 1e-9 && Math.Abs(builtOffset.Y - _offset.Y) < 1e-9;
+        if (!same) dc.PushTransform(new MatrixTransform(k, 0, 0, k, _offset.X - builtOffset.X * k, _offset.Y - builtOffset.Y * k));
+        dc.DrawDrawing(entities);
+        if (!same) dc.Pop();
     }
 
-    /// <summary>Nesneyi sahneye ekler: çizgisel olanlar kalem grubuna, yazı/ölçü/tarama doğrudan çizilir.</summary>
-    private void AddToScene(DrawingContext dc, Entity e, BBox b, Pen pen, Func<Pen, LineBatch> batchFor, CadDocument? doc, BBox view, int depth)
+    private void RequestBackgroundBuild()
     {
-        // Ekranda 1 pikselden küçük nesneler: tek nokta (ayrıntı hesaplanmaz)
-        if (e is not BlockRefEntity && !b.IsEmpty && b.Width * _scale < 1.2 && b.Height * _scale < 1.2)
+        _buildGen++;
+        if (_building)
         {
-            var p = ToScreen(new Vec2(b.MinX, b.MinY));
-            var bctx = batchFor(pen).Ctx;
-            bctx.BeginFigure(p, false, false);
-            bctx.LineTo(new Point(p.X + 1, p.Y), true, false);
+            _buildPending = true;
+            ApplySceneTransform();
             return;
         }
-        switch (e)
-        {
-            case DimensionEntity when Math.Max(b.Width, b.Height) * _scale < 12:
-                // Çok küçük ölçü: yazısız, yalnızca geometrisi
-                AddPrims(batchFor(pen).Ctx, e.Primitives());
-                return;
-            case HatchEntity h when !h.IsSolid:
-                {
-                    // Desen çizgileri de kalem grubuna (binlerce ayrı DrawLine yerine tek geometri)
-                    var hctx = batchFor(pen).Ctx;
-                    double spacingPx = HatchEntity.BaseSpacing * h.Scale * _scale;
-                    if (spacingPx >= 2)
-                        foreach (var (a, bb) in h.PatternSegments())
-                        {
-                            hctx.BeginFigure(ToScreen(a), false, false);
-                            hctx.LineTo(ToScreen(bb), true, false);
-                        }
-                    else
-                        foreach (var loop in h.Loops) AddPrims(hctx, HatchEntity.LoopPrims(loop));
-                    return;
-                }
-            case DimensionEntity dim when _fillBatches != null:
-                {
-                    // Ölçü çizgileri ve okları da gruplanır; yalnızca yazılar tek tek çizilir
-                    var g = dim.Build();
-                    var dctx = batchFor(pen).Ctx;
-                    foreach (var (a, bb) in g.Lines)
-                    {
-                        dctx.BeginFigure(ToScreen(a), false, false);
-                        dctx.LineTo(ToScreen(bb), true, false);
-                    }
-                    if (g.Arcs.Count > 0) AddPrims(dctx, g.Arcs);
-                    if (g.Arrows.Count > 0)
-                    {
-                        if (!_fillBatches.TryGetValue(pen.Brush, out var fb)) _fillBatches[pen.Brush] = fb = new LineBatch();
-                        foreach (var tri in g.Arrows)
-                        {
-                            fb.Ctx.BeginFigure(ToScreen(tri[0]), true, true);
-                            fb.Ctx.LineTo(ToScreen(tri[1]), true, false);
-                            fb.Ctx.LineTo(ToScreen(tri[2]), true, false);
-                        }
-                    }
-                    foreach (var (anchor, rot, th, text) in g.Texts)
-                        DrawCenteredText(dc, text, anchor, rot, th, pen.Brush);
-                    return;
-                }
-            case TextEntity or DimensionEntity or HatchEntity:
-                DrawEntity(dc, e, pen, pen.Brush);
-                return;
-            case BlockRefEntity br when depth < 16:
-                foreach (var (child, layer, color, cb) in br.DrawItems())
-                {
-                    if (!cb.IsEmpty && !view.Intersects(cb)) continue;
-                    var cp = pen;
-                    if (doc != null)
-                    {
-                        if (doc.Layers.TryGetValue(layer, out var li) && !li.Visible) continue;
-                        cp = GetPen(color ?? (li != null ? li.Color : doc.ResolveColor(br)));
-                    }
-                    AddToScene(dc, child, cb, cp, batchFor, doc, view, depth + 1);
-                }
-                return;
-        }
-
-        var ctx = batchFor(pen).Ctx;
-        switch (e)
-        {
-            case CircleEntity c:
-                {
-                    double r = c.Radius * _scale;
-                    var cs = ToScreen(c.Center);
-                    var p0 = new Point(cs.X + r, cs.Y);
-                    var p1 = new Point(cs.X - r, cs.Y);
-                    ctx.BeginFigure(p0, false, true);
-                    ctx.ArcTo(p1, new Size(r, r), 0, false, SweepDirection.Counterclockwise, true, false);
-                    ctx.ArcTo(p0, new Size(r, r), 0, false, SweepDirection.Counterclockwise, true, false);
-                    return;
-                }
-            case PolylineEntity pl:
-                AddPolyline(ctx, pl);
-                return;
-            default:
-                AddPrims(ctx, e.Primitives());
-                return;
-        }
+        StartBackgroundBuild();
     }
 
-    /// <summary>Polyline: düz parçalar doğrudan köşelerden, yarım pikselden kısa adımlar atlanarak.</summary>
-    private void AddPolyline(StreamGeometryContext ctx, PolylineEntity pl)
+    private void StartBackgroundBuild()
     {
-        var v = pl.VertexView;
-        int n = pl.SegmentCount;
-        if (n == 0) return;
-        var start = ToScreen(v[0].P);
-        ctx.BeginFigure(start, false, false);
-        var last = start;
-        for (int i = 0; i < n; i++)
+        if (_editor == null) return;
+        _building = true;
+        _buildPending = false;
+        int gen = _buildGen;
+        var doc = _editor.Doc;
+        // Nesne listeleri arayüz iş parçacığında kopyalanır; kurulum sırasında belge değişirse
+        // sonuç zaten atılır ve yeniden kurulur.
+        var ents = doc.Entities.ToArray();
+        var sel = doc.Selection.ToArray();
+        var view = ViewBox();
+        double scale = _scale;
+        var offset = _offset;
+        PrepareBuilder(_bgBuilder);
+        var builder = _bgBuilder;
+        Task.Run(() =>
         {
-            var a = v[i];
-            var bv = v[(i + 1) % v.Count];
-            var bp = ToScreen(bv.P);
-            bool lastSeg = i == n - 1;
-            if (Math.Abs(a.Bulge) < 1e-12)
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            DrawingGroup? g = null;
+            try { g = builder.Build(doc, ents, sel, view, () => gen != Volatile.Read(ref _buildGen)); }
+            catch { /* kurulum sırasında belge değişti; yeniden kurulacak */ }
+            return (g, sw.Elapsed.TotalMilliseconds);
+        }).ContinueWith(t =>
+        {
+            var (g, ms) = t.Result;
+            Dispatcher.InvokeAsync(() =>
             {
-                double dx = bp.X - last.X, dy = bp.Y - last.Y;
-                if (dx * dx + dy * dy < 0.36 && !lastSeg) continue;
-                ctx.LineTo(bp, true, false);
-                last = bp;
-            }
-            else
-            {
-                var seg = pl.Segment(i);
-                if (seg is ArcPrim arc && arc.Radius * _scale >= 1)
+                _building = false;
+                if (g != null && gen == _buildGen && _editor?.Doc == doc)
                 {
-                    if ((last - ToScreen(seg.StartPoint)).LengthSquared > 0.36) ctx.LineTo(ToScreen(seg.StartPoint), true, false);
-                    double sweep = GeoUtil.Sweep(arc.Start, arc.End);
-                    double r = arc.Radius * _scale;
-                    var dir = arc.Reversed ? SweepDirection.Clockwise : SweepDirection.Counterclockwise;
-                    ctx.ArcTo(bp, new Size(r, r), 0, sweep > Math.PI, dir, true, false);
+                    _lastSceneMs = ms;
+                    Compose(g, scale, offset);
                 }
-                else ctx.LineTo(bp, true, false);
-                last = bp;
-            }
-        }
+                else if (g == null && gen == _buildGen) _buildPending = true;   // hata: yeniden dene
+                if (_buildPending)
+                {
+                    if (_lastSceneMs >= BackgroundThresholdMs) StartBackgroundBuild();
+                    else RedrawScene();
+                }
+            }, System.Windows.Threading.DispatcherPriority.Render);
+        }, TaskScheduler.Default);
     }
-
-    private void AddPrims(StreamGeometryContext ctx, IEnumerable<Prim> prims)
-    {
-        Point? cur = null;
-        foreach (var pr in prims)
-        {
-            var s = ToScreen(pr.StartPoint);
-            if (cur == null || (cur.Value - s).LengthSquared > 0.36)
-            {
-                ctx.BeginFigure(s, false, false);
-                cur = s;
-            }
-            switch (pr)
-            {
-                case LinePrim l:
-                    {
-                        var ep = ToScreen(l.B);
-                        if ((ep - cur.Value).LengthSquared < 0.36) continue;
-                        ctx.LineTo(ep, true, false);
-                        cur = ep;
-                        break;
-                    }
-                case ArcPrim a:
-                    {
-                        double r = a.Radius * _scale;
-                        double sweep = GeoUtil.Sweep(a.Start, a.End);
-                        if (a.IsFull || sweep >= GeoUtil.TwoPi - 1e-9)
-                        {
-                            var opp = ToScreen(a.Center + (a.Center - pr.StartPoint));
-                            ctx.ArcTo(opp, new Size(r, r), 0, false, SweepDirection.Counterclockwise, true, false);
-                            ctx.ArcTo(s, new Size(r, r), 0, false, SweepDirection.Counterclockwise, true, false);
-                            cur = s;
-                            break;
-                        }
-                        var ep = ToScreen(a.EndPoint);
-                        if (r < 1) ctx.LineTo(ep, true, false);
-                        else
-                        {
-                            var dir = a.Reversed ? SweepDirection.Clockwise : SweepDirection.Counterclockwise;
-                            ctx.ArcTo(ep, new Size(r, r), 0, sweep > Math.PI, dir, true, false);
-                        }
-                        cur = ep;
-                        break;
-                    }
-            }
-        }
-    }
-
     private void DrawGrid(DrawingContext dc)
     {
         // Ekranda ~15 pikselden sık olmayacak şekilde 10'un kuvveti aralık seç
@@ -580,227 +454,488 @@ public sealed class CadCanvas : FrameworkElement
 
     private void DrawLabel(DrawingContext dc, string text, Point at, Brush brush, double size = 12)
     {
-        var ft = new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, _typeface, size, brush,
+        var ft = new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Face, size, brush,
             VisualTreeHelper.GetDpi(this).PixelsPerDip);
         dc.DrawText(ft, at);
     }
 
-    private void DrawEntity(DrawingContext dc, Entity e, Pen pen, Brush brush)
+    /// <summary>
+    /// Sahne kurucu: nesneleri belirli bir görünüm (ölçek/kaydırma) için ekran koordinatlarında çizer.
+    /// Kendi görünüm ve önbellek durumunu taşıdığı için arka plan iş parçacığında da çalışabilir
+    /// (ürettiği her şey dondurulur). Aynı örnek aynı anda tek iş parçacığından kullanılmalıdır.
+    /// </summary>
+    private sealed class SceneBuilder
     {
-        if (e is TextEntity t)
+        public double Scale = 10;
+        public Point Offset;
+        public double PixelsPerDip = 1;
+        public CadDocument? Doc;
+        private Dictionary<Brush, LineBatch>? _fillBatches;
+
+        public Point ToScreen(Vec2 p) => new(Offset.X + p.X * Scale, Offset.Y - p.Y * Scale);
+
+        /// <summary>Görünür nesneleri ve seçim vurgusunu tek bir dondurulmuş çizime toplar.</summary>
+        public DrawingGroup Build(CadDocument doc, Entity[] entities, Entity[] selection, BBox view, Func<bool>? cancelled = null)
         {
-            DrawText(dc, t, brush);
-            return;
-        }
-        if (e is DimensionEntity dim)
-        {
-            DrawDimension(dc, dim, pen, brush);
-            return;
-        }
-        if (e is HatchEntity hatch)
-        {
-            DrawHatch(dc, hatch, pen, brush, highlight: ReferenceEquals(pen, SelPen) || ReferenceEquals(pen, PreviewPen));
-            return;
-        }
-        if (e is BlockRefEntity br)
-        {
-            bool fixedPen = ReferenceEquals(pen, SelPen) || ReferenceEquals(pen, PreviewPen) || _editor == null;
-            foreach (var (child, layer, color, _) in br.DrawItems())
+            Doc = doc;
+            var group = new DrawingGroup();
+            using (var dc = group.Open())
             {
-                if (fixedPen) { DrawEntity(dc, child, pen, brush); continue; }
-                var doc = _editor!.Doc;
-                if (doc.Layers.TryGetValue(layer, out var li) && !li.Visible) continue;
-                var col = color ?? (li != null ? li.Color : doc.ResolveColor(br));
-                var cp = GetPen(col);
-                DrawEntity(dc, child, cp, cp.Brush);
+                var batches = new Dictionary<Pen, LineBatch>();
+                _fillBatches = new Dictionary<Brush, LineBatch>();
+                LineBatch BatchFor(Pen pen)
+                {
+                    if (!batches.TryGetValue(pen, out var lb)) batches[pen] = lb = new LineBatch();
+                    return lb;
+                }
+
+                int k = 0;
+                foreach (var e in entities)
+                {
+                    if ((++k & 1023) == 0 && cancelled != null && cancelled()) break;
+                    if (!doc.IsVisible(e)) continue;
+                    var b = doc.BoundsOf(e);
+                    if (!b.IsEmpty && !view.Intersects(b)) continue;
+                    var pen = GetPen(doc.ResolveColor(e));
+                    AddToScene(dc, e, b, pen, BatchFor, doc, view, 0);
+                }
+                // Seçim vurgusu da tek geometride
+                LineBatch? sel = null;
+                foreach (var e in selection)
+                {
+                    if (!doc.IsVisible(e)) continue;
+                    var b = doc.BoundsOf(e);
+                    if (!b.IsEmpty && !view.Intersects(b)) continue;
+                    if (e is TextEntity or DimensionEntity or HatchEntity) { DrawEntity(dc, e, SelPen, SelPen.Brush); continue; }
+                    sel ??= new LineBatch();
+                    AddToScene(dc, e, b, SelPen, _ => sel!, null, view, 0);
+                }
+
+                foreach (var (pen, lb) in batches)
+                {
+                    lb.Ctx.Close();
+                    lb.Geo.Freeze();
+                    dc.DrawGeometry(null, pen, lb.Geo);
+                }
+                foreach (var (brush, fb) in _fillBatches)
+                {
+                    fb.Ctx.Close();
+                    fb.Geo.Freeze();
+                    dc.DrawGeometry(brush, null, fb.Geo);
+                }
+                _fillBatches = null;
+                if (sel != null)
+                {
+                    sel.Ctx.Close();
+                    sel.Geo.Freeze();
+                    dc.DrawGeometry(null, SelPen, sel.Geo);
+                }
             }
-            return;
+            group.Freeze();
+            return group;
         }
-        if (e is CircleEntity c)
+        /// <summary>Nesneyi sahneye ekler: çizgisel olanlar kalem grubuna, yazı/ölçü/tarama doğrudan çizilir.</summary>
+        private void AddToScene(DrawingContext dc, Entity e, BBox b, Pen pen, Func<Pen, LineBatch> batchFor, CadDocument? doc, BBox view, int depth)
         {
-            double r = c.Radius * _scale;
-            dc.DrawEllipse(null, pen, ToScreen(c.Center), r, r);
-            return;
+            // Ekranda 1 pikselden küçük nesneler: tek nokta (ayrıntı hesaplanmaz)
+            if (e is not BlockRefEntity && !b.IsEmpty && b.Width * Scale < 1.2 && b.Height * Scale < 1.2)
+            {
+                var p = ToScreen(new Vec2(b.MinX, b.MinY));
+                var bctx = batchFor(pen).Ctx;
+                bctx.BeginFigure(p, false, false);
+                bctx.LineTo(new Point(p.X + 1, p.Y), true, false);
+                return;
+            }
+            switch (e)
+            {
+                case DimensionEntity when Math.Max(b.Width, b.Height) * Scale < 12:
+                    // Çok küçük ölçü: yazısız, yalnızca geometrisi
+                    AddPrims(batchFor(pen).Ctx, e.Primitives());
+                    return;
+                case HatchEntity h when !h.IsSolid:
+                    {
+                        // Desen çizgileri de kalem grubuna (binlerce ayrı DrawLine yerine tek geometri)
+                        var hctx = batchFor(pen).Ctx;
+                        double spacingPx = HatchEntity.BaseSpacing * h.Scale * Scale;
+                        if (spacingPx >= 2)
+                            foreach (var (a, bb) in h.PatternSegments())
+                            {
+                                hctx.BeginFigure(ToScreen(a), false, false);
+                                hctx.LineTo(ToScreen(bb), true, false);
+                            }
+                        else
+                            foreach (var loop in h.Loops) AddPrims(hctx, HatchEntity.LoopPrims(loop));
+                        return;
+                    }
+                case DimensionEntity dim when _fillBatches != null:
+                    {
+                        // Ölçü çizgileri ve okları da gruplanır; yalnızca yazılar tek tek çizilir
+                        var g = dim.Build();
+                        var dctx = batchFor(pen).Ctx;
+                        foreach (var (a, bb) in g.Lines)
+                        {
+                            dctx.BeginFigure(ToScreen(a), false, false);
+                            dctx.LineTo(ToScreen(bb), true, false);
+                        }
+                        if (g.Arcs.Count > 0) AddPrims(dctx, g.Arcs);
+                        if (g.Arrows.Count > 0)
+                        {
+                            if (!_fillBatches.TryGetValue(pen.Brush, out var fb)) _fillBatches[pen.Brush] = fb = new LineBatch();
+                            foreach (var tri in g.Arrows)
+                            {
+                                fb.Ctx.BeginFigure(ToScreen(tri[0]), true, true);
+                                fb.Ctx.LineTo(ToScreen(tri[1]), true, false);
+                                fb.Ctx.LineTo(ToScreen(tri[2]), true, false);
+                            }
+                        }
+                        foreach (var (anchor, rot, th, text) in g.Texts)
+                            DrawCenteredText(dc, text, anchor, rot, th, pen.Brush);
+                        return;
+                    }
+                case TextEntity or DimensionEntity or HatchEntity:
+                    DrawEntity(dc, e, pen, pen.Brush);
+                    return;
+                case BlockRefEntity br when depth < 16:
+                    foreach (var (child, layer, color, cb) in br.DrawItems())
+                    {
+                        if (!cb.IsEmpty && !view.Intersects(cb)) continue;
+                        var cp = pen;
+                        if (doc != null)
+                        {
+                            if (doc.Layers.TryGetValue(layer, out var li) && !li.Visible) continue;
+                            cp = GetPen(color ?? (li != null ? li.Color : doc.ResolveColor(br)));
+                        }
+                        AddToScene(dc, child, cb, cp, batchFor, doc, view, depth + 1);
+                    }
+                    return;
+            }
+
+            var ctx = batchFor(pen).Ctx;
+            switch (e)
+            {
+                case CircleEntity c:
+                    {
+                        double r = c.Radius * Scale;
+                        var cs = ToScreen(c.Center);
+                        var p0 = new Point(cs.X + r, cs.Y);
+                        var p1 = new Point(cs.X - r, cs.Y);
+                        ctx.BeginFigure(p0, false, true);
+                        ctx.ArcTo(p1, new Size(r, r), 0, false, SweepDirection.Counterclockwise, true, false);
+                        ctx.ArcTo(p0, new Size(r, r), 0, false, SweepDirection.Counterclockwise, true, false);
+                        return;
+                    }
+                case PolylineEntity pl:
+                    AddPolyline(ctx, pl);
+                    return;
+                default:
+                    AddPrims(ctx, e.Primitives());
+                    return;
+            }
         }
-        var geo = new StreamGeometry();
-        using (var ctx = geo.Open())
+
+        /// <summary>Polyline: düz parçalar doğrudan köşelerden, yarım pikselden kısa adımlar atlanarak.</summary>
+        private void AddPolyline(StreamGeometryContext ctx, PolylineEntity pl)
+        {
+            var v = pl.VertexView;
+            int n = pl.SegmentCount;
+            if (n == 0) return;
+            var start = ToScreen(v[0].P);
+            ctx.BeginFigure(start, false, false);
+            var last = start;
+            for (int i = 0; i < n; i++)
+            {
+                var a = v[i];
+                var bv = v[(i + 1) % v.Count];
+                var bp = ToScreen(bv.P);
+                bool lastSeg = i == n - 1;
+                if (Math.Abs(a.Bulge) < 1e-12)
+                {
+                    double dx = bp.X - last.X, dy = bp.Y - last.Y;
+                    if (dx * dx + dy * dy < 0.36 && !lastSeg) continue;
+                    ctx.LineTo(bp, true, false);
+                    last = bp;
+                }
+                else
+                {
+                    var seg = pl.Segment(i);
+                    if (seg is ArcPrim arc && arc.Radius * Scale >= 1)
+                    {
+                        if ((last - ToScreen(seg.StartPoint)).LengthSquared > 0.36) ctx.LineTo(ToScreen(seg.StartPoint), true, false);
+                        double sweep = GeoUtil.Sweep(arc.Start, arc.End);
+                        double r = arc.Radius * Scale;
+                        var dir = arc.Reversed ? SweepDirection.Clockwise : SweepDirection.Counterclockwise;
+                        ctx.ArcTo(bp, new Size(r, r), 0, sweep > Math.PI, dir, true, false);
+                    }
+                    else ctx.LineTo(bp, true, false);
+                    last = bp;
+                }
+            }
+        }
+
+        private void AddPrims(StreamGeometryContext ctx, IEnumerable<Prim> prims)
         {
             Point? cur = null;
-            foreach (var pr in e.Primitives())
+            foreach (var pr in prims)
             {
                 var s = ToScreen(pr.StartPoint);
-                if (cur == null || (cur.Value - s).LengthSquared > 0.25)
+                if (cur == null || (cur.Value - s).LengthSquared > 0.36)
+                {
                     ctx.BeginFigure(s, false, false);
+                    cur = s;
+                }
                 switch (pr)
                 {
                     case LinePrim l:
-                        ctx.LineTo(ToScreen(l.B), true, false);
-                        cur = ToScreen(l.B);
-                        break;
+                        {
+                            var ep = ToScreen(l.B);
+                            if ((ep - cur.Value).LengthSquared < 0.36) continue;
+                            ctx.LineTo(ep, true, false);
+                            cur = ep;
+                            break;
+                        }
                     case ArcPrim a:
                         {
-                            var ep = ToScreen(a.EndPoint);
+                            double r = a.Radius * Scale;
                             double sweep = GeoUtil.Sweep(a.Start, a.End);
-                            double r = a.Radius * _scale;
                             if (a.IsFull || sweep >= GeoUtil.TwoPi - 1e-9)
                             {
                                 var opp = ToScreen(a.Center + (a.Center - pr.StartPoint));
                                 ctx.ArcTo(opp, new Size(r, r), 0, false, SweepDirection.Counterclockwise, true, false);
                                 ctx.ArcTo(s, new Size(r, r), 0, false, SweepDirection.Counterclockwise, true, false);
                                 cur = s;
+                                break;
                             }
+                            var ep = ToScreen(a.EndPoint);
+                            if (r < 1) ctx.LineTo(ep, true, false);
                             else
                             {
-                                // SweepDirection ekranda görünen yöndür; y ekseni ters çevrildiği için dünyadaki CCW ekranda da CCW görünür
                                 var dir = a.Reversed ? SweepDirection.Clockwise : SweepDirection.Counterclockwise;
                                 ctx.ArcTo(ep, new Size(r, r), 0, sweep > Math.PI, dir, true, false);
-                                cur = ep;
                             }
+                            cur = ep;
                             break;
                         }
                 }
             }
         }
-        geo.Freeze();
-        dc.DrawGeometry(null, pen, geo);
-    }
 
-    private void DrawDimension(DrawingContext dc, DimensionEntity dim, Pen pen, Brush brush)
-    {
-        var g = dim.Build();
-        foreach (var (a, b) in g.Lines) dc.DrawLine(pen, ToScreen(a), ToScreen(b));
-        foreach (var arc in g.Arcs) DrawPrims(dc, new Prim[] { arc }, pen);
-        foreach (var tri in g.Arrows)
+        public void DrawEntity(DrawingContext dc, Entity e, Pen pen, Brush brush)
+        {
+            if (e is TextEntity t)
+            {
+                DrawText(dc, t, brush);
+                return;
+            }
+            if (e is DimensionEntity dim)
+            {
+                DrawDimension(dc, dim, pen, brush);
+                return;
+            }
+            if (e is HatchEntity hatch)
+            {
+                DrawHatch(dc, hatch, pen, brush, highlight: ReferenceEquals(pen, SelPen) || ReferenceEquals(pen, PreviewPen));
+                return;
+            }
+            if (e is BlockRefEntity br)
+            {
+                bool fixedPen = ReferenceEquals(pen, SelPen) || ReferenceEquals(pen, PreviewPen) || Doc == null;
+                foreach (var (child, layer, color, _) in br.DrawItems())
+                {
+                    if (fixedPen) { DrawEntity(dc, child, pen, brush); continue; }
+                    var doc = Doc!;
+                    if (doc.Layers.TryGetValue(layer, out var li) && !li.Visible) continue;
+                    var col = color ?? (li != null ? li.Color : doc.ResolveColor(br));
+                    var cp = GetPen(col);
+                    DrawEntity(dc, child, cp, cp.Brush);
+                }
+                return;
+            }
+            if (e is CircleEntity c)
+            {
+                double r = c.Radius * Scale;
+                dc.DrawEllipse(null, pen, ToScreen(c.Center), r, r);
+                return;
+            }
+            var geo = new StreamGeometry();
+            using (var ctx = geo.Open())
+            {
+                Point? cur = null;
+                foreach (var pr in e.Primitives())
+                {
+                    var s = ToScreen(pr.StartPoint);
+                    if (cur == null || (cur.Value - s).LengthSquared > 0.25)
+                        ctx.BeginFigure(s, false, false);
+                    switch (pr)
+                    {
+                        case LinePrim l:
+                            ctx.LineTo(ToScreen(l.B), true, false);
+                            cur = ToScreen(l.B);
+                            break;
+                        case ArcPrim a:
+                            {
+                                var ep = ToScreen(a.EndPoint);
+                                double sweep = GeoUtil.Sweep(a.Start, a.End);
+                                double r = a.Radius * Scale;
+                                if (a.IsFull || sweep >= GeoUtil.TwoPi - 1e-9)
+                                {
+                                    var opp = ToScreen(a.Center + (a.Center - pr.StartPoint));
+                                    ctx.ArcTo(opp, new Size(r, r), 0, false, SweepDirection.Counterclockwise, true, false);
+                                    ctx.ArcTo(s, new Size(r, r), 0, false, SweepDirection.Counterclockwise, true, false);
+                                    cur = s;
+                                }
+                                else
+                                {
+                                    // SweepDirection ekranda görünen yöndür; y ekseni ters çevrildiği için dünyadaki CCW ekranda da CCW görünür
+                                    var dir = a.Reversed ? SweepDirection.Clockwise : SweepDirection.Counterclockwise;
+                                    ctx.ArcTo(ep, new Size(r, r), 0, sweep > Math.PI, dir, true, false);
+                                    cur = ep;
+                                }
+                                break;
+                            }
+                    }
+                }
+            }
+            geo.Freeze();
+            dc.DrawGeometry(null, pen, geo);
+        }
+
+        private void DrawDimension(DrawingContext dc, DimensionEntity dim, Pen pen, Brush brush)
+        {
+            var g = dim.Build();
+            foreach (var (a, b) in g.Lines) dc.DrawLine(pen, ToScreen(a), ToScreen(b));
+            foreach (var arc in g.Arcs) DrawPrims(dc, new Prim[] { arc }, pen);
+            foreach (var tri in g.Arrows)
+            {
+                var geo = new StreamGeometry();
+                using (var ctx = geo.Open())
+                {
+                    ctx.BeginFigure(ToScreen(tri[0]), true, true);
+                    ctx.LineTo(ToScreen(tri[1]), true, false);
+                    ctx.LineTo(ToScreen(tri[2]), true, false);
+                }
+                geo.Freeze();
+                dc.DrawGeometry(brush, null, geo);
+            }
+            foreach (var (anchor, rot, h, text) in g.Texts)
+                DrawCenteredText(dc, text, anchor, rot, h, brush);
+        }
+
+        /// <summary>Alt-orta noktası verilen yazıyı çizer.</summary>
+        private void DrawCenteredText(DrawingContext dc, string text, Vec2 anchor, double rotation, double height, Brush brush)
+        {
+            double em = height * Scale / 0.7;
+            if (em < 2 || em > 2000) return;
+            var ft = Ft(text, em, brush);
+            var sp = ToScreen(anchor);
+            dc.PushTransform(new RotateTransform(-GeoUtil.RadToDeg(rotation), sp.X, sp.Y));
+            dc.DrawText(ft, new Point(sp.X - ft.Width / 2, sp.Y - ft.Baseline));
+            dc.Pop();
+        }
+
+        private void DrawHatch(DrawingContext dc, HatchEntity h, Pen pen, Brush brush, bool highlight)
+        {
+            if (h.IsSolid)
+            {
+                var geo = new StreamGeometry { FillRule = FillRule.EvenOdd };
+                using (var ctx = geo.Open())
+                {
+                    foreach (var poly in h.LoopPolygons())
+                    {
+                        ctx.BeginFigure(ToScreen(poly[0]), true, true);
+                        for (int i = 1; i < poly.Count; i++) ctx.LineTo(ToScreen(poly[i]), true, false);
+                    }
+                }
+                geo.Freeze();
+                dc.DrawGeometry(highlight ? null : brush, highlight ? pen : null, geo);
+                return;
+            }
+            // Çok küçük ölçekte desen yerine yalnızca sınır
+            double spacingPx = HatchEntity.BaseSpacing * h.Scale * Scale;
+            if (spacingPx >= 2)
+            {
+                foreach (var (a, b) in h.PatternSegments())
+                    dc.DrawLine(pen, ToScreen(a), ToScreen(b));
+            }
+            if (highlight || spacingPx < 2)
+                foreach (var loop in h.Loops) DrawPrims(dc, HatchEntity.LoopPrims(loop), pen);
+        }
+
+        private void DrawPrims(DrawingContext dc, IEnumerable<Prim> prims, Pen pen)
         {
             var geo = new StreamGeometry();
             using (var ctx = geo.Open())
             {
-                ctx.BeginFigure(ToScreen(tri[0]), true, true);
-                ctx.LineTo(ToScreen(tri[1]), true, false);
-                ctx.LineTo(ToScreen(tri[2]), true, false);
-            }
-            geo.Freeze();
-            dc.DrawGeometry(brush, null, geo);
-        }
-        foreach (var (anchor, rot, h, text) in g.Texts)
-            DrawCenteredText(dc, text, anchor, rot, h, brush);
-    }
-
-    /// <summary>Alt-orta noktası verilen yazıyı çizer.</summary>
-    private void DrawCenteredText(DrawingContext dc, string text, Vec2 anchor, double rotation, double height, Brush brush)
-    {
-        double em = height * _scale / 0.7;
-        if (em < 2 || em > 2000) return;
-        var ft = Ft(text, em, brush);
-        var sp = ToScreen(anchor);
-        dc.PushTransform(new RotateTransform(-GeoUtil.RadToDeg(rotation), sp.X, sp.Y));
-        dc.DrawText(ft, new Point(sp.X - ft.Width / 2, sp.Y - ft.Baseline));
-        dc.Pop();
-    }
-
-    private void DrawHatch(DrawingContext dc, HatchEntity h, Pen pen, Brush brush, bool highlight)
-    {
-        if (h.IsSolid)
-        {
-            var geo = new StreamGeometry { FillRule = FillRule.EvenOdd };
-            using (var ctx = geo.Open())
-            {
-                foreach (var poly in h.LoopPolygons())
+                Point? cur = null;
+                foreach (var pr in prims)
                 {
-                    ctx.BeginFigure(ToScreen(poly[0]), true, true);
-                    for (int i = 1; i < poly.Count; i++) ctx.LineTo(ToScreen(poly[i]), true, false);
+                    var s = ToScreen(pr.StartPoint);
+                    if (cur == null || (cur.Value - s).LengthSquared > 0.25)
+                        ctx.BeginFigure(s, false, false);
+                    if (pr is LinePrim l)
+                    {
+                        cur = ToScreen(l.B);
+                        ctx.LineTo(cur.Value, true, false);
+                    }
+                    else if (pr is ArcPrim a)
+                    {
+                        var ep = ToScreen(a.EndPoint);
+                        double sweep = GeoUtil.Sweep(a.Start, a.End);
+                        double r = a.Radius * Scale;
+                        var dir = a.Reversed ? SweepDirection.Clockwise : SweepDirection.Counterclockwise;
+                        ctx.ArcTo(ep, new Size(r, r), 0, sweep > Math.PI, dir, true, false);
+                        cur = ep;
+                    }
                 }
             }
             geo.Freeze();
-            dc.DrawGeometry(highlight ? null : brush, highlight ? pen : null, geo);
-            return;
+            dc.DrawGeometry(null, pen, geo);
         }
-        // Çok küçük ölçekte desen yerine yalnızca sınır
-        double spacingPx = HatchEntity.BaseSpacing * h.Scale * _scale;
-        if (spacingPx >= 2)
-        {
-            foreach (var (a, b) in h.PatternSegments())
-                dc.DrawLine(pen, ToScreen(a), ToScreen(b));
-        }
-        if (highlight || spacingPx < 2)
-            foreach (var loop in h.Loops) DrawPrims(dc, HatchEntity.LoopPrims(loop), pen);
-    }
 
-    private void DrawPrims(DrawingContext dc, IEnumerable<Prim> prims, Pen pen)
-    {
-        var geo = new StreamGeometry();
-        using (var ctx = geo.Open())
+        // Yazı biçimleme (FormattedText) pahalıdır; aynı metin/boyut/renk için yeniden kullanılır.
+        private readonly Dictionary<(string Text, int Em, Brush Brush), FormattedText> _ftCache = new();
+
+        private FormattedText Ft(string text, double em, Brush brush)
         {
-            Point? cur = null;
-            foreach (var pr in prims)
+            int q = (int)Math.Round(em * 4);                    // çeyrek piksel hassasiyet
+            var key = (text, q, brush);
+            if (_ftCache.TryGetValue(key, out var ft)) return ft;
+            if (_ftCache.Count > 20000) _ftCache.Clear();
+            ft = new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Face, q / 4.0, brush,
+                PixelsPerDip);
+            _ftCache[key] = ft;
+            return ft;
+        }
+
+        private void DrawText(DrawingContext dc, TextEntity t, Brush brush)
+        {
+            double em = t.Height * Scale / 0.7;
+            var lines = t.Lines;
+            if (em < 2)
             {
-                var s = ToScreen(pr.StartPoint);
-                if (cur == null || (cur.Value - s).LengthSquared > 0.25)
-                    ctx.BeginFigure(s, false, false);
-                if (pr is LinePrim l)
+                // Çok küçük: yalnızca taban çizgileri
+                var pen = new Pen(brush, 1);
+                for (int i = 0; i < lines.Length; i++)
                 {
-                    cur = ToScreen(l.B);
-                    ctx.LineTo(cur.Value, true, false);
+                    var o = t.LineOrigin(i);
+                    dc.DrawLine(pen, ToScreen(o), ToScreen(o + Vec2.Polar(t.LineWidth(lines[i]), t.Rotation)));
                 }
-                else if (pr is ArcPrim a)
-                {
-                    var ep = ToScreen(a.EndPoint);
-                    double sweep = GeoUtil.Sweep(a.Start, a.End);
-                    double r = a.Radius * _scale;
-                    var dir = a.Reversed ? SweepDirection.Clockwise : SweepDirection.Counterclockwise;
-                    ctx.ArcTo(ep, new Size(r, r), 0, sweep > Math.PI, dir, true, false);
-                    cur = ep;
-                }
+                return;
             }
-        }
-        geo.Freeze();
-        dc.DrawGeometry(null, pen, geo);
-    }
-
-    // Yazı biçimleme (FormattedText) pahalıdır; aynı metin/boyut/renk için yeniden kullanılır.
-    private readonly Dictionary<(string Text, int Em, Brush Brush), FormattedText> _ftCache = new();
-
-    private FormattedText Ft(string text, double em, Brush brush)
-    {
-        int q = (int)Math.Round(em * 4);                    // çeyrek piksel hassasiyet
-        var key = (text, q, brush);
-        if (_ftCache.TryGetValue(key, out var ft)) return ft;
-        if (_ftCache.Count > 20000) _ftCache.Clear();
-        ft = new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, _typeface, q / 4.0, brush,
-            VisualTreeHelper.GetDpi(this).PixelsPerDip);
-        _ftCache[key] = ft;
-        return ft;
-    }
-
-    private void DrawText(DrawingContext dc, TextEntity t, Brush brush)
-    {
-        double em = t.Height * _scale / 0.7;
-        var lines = t.Lines;
-        if (em < 2)
-        {
-            // Çok küçük: yalnızca taban çizgileri
-            var pen = new Pen(brush, 1);
+            if (em > 2000) return;
             for (int i = 0; i < lines.Length; i++)
             {
-                var o = t.LineOrigin(i);
-                dc.DrawLine(pen, ToScreen(o), ToScreen(o + Vec2.Polar(t.LineWidth(lines[i]), t.Rotation)));
+                if (lines[i].Length == 0) continue;
+                var ft = Ft(lines[i], em, brush);
+                // Tahmini genişliğe sığdır (hizalama ve seçim kutusu tahmini genişliğe göre)
+                double want = t.LineWidth(lines[i]) * Scale;
+                double sx = ft.Width > 1e-6 ? Math.Clamp(want / ft.Width, 0.5, 2.0) : 1;
+                var sp = ToScreen(t.LineOrigin(i));
+                dc.PushTransform(new RotateTransform(-GeoUtil.RadToDeg(t.Rotation), sp.X, sp.Y));
+                dc.PushTransform(new ScaleTransform(sx, 1, sp.X, sp.Y));
+                dc.DrawText(ft, new Point(sp.X, sp.Y - ft.Baseline));
+                dc.Pop();
+                dc.Pop();
             }
-            return;
-        }
-        if (em > 2000) return;
-        for (int i = 0; i < lines.Length; i++)
-        {
-            if (lines[i].Length == 0) continue;
-            var ft = Ft(lines[i], em, brush);
-            // Tahmini genişliğe sığdır (hizalama ve seçim kutusu tahmini genişliğe göre)
-            double want = t.LineWidth(lines[i]) * _scale;
-            double sx = ft.Width > 1e-6 ? Math.Clamp(want / ft.Width, 0.5, 2.0) : 1;
-            var sp = ToScreen(t.LineOrigin(i));
-            dc.PushTransform(new RotateTransform(-GeoUtil.RadToDeg(t.Rotation), sp.X, sp.Y));
-            dc.PushTransform(new ScaleTransform(sx, 1, sp.X, sp.Y));
-            dc.DrawText(ft, new Point(sp.X, sp.Y - ft.Baseline));
-            dc.Pop();
-            dc.Pop();
         }
     }
 
@@ -810,7 +945,11 @@ public sealed class CadCanvas : FrameworkElement
         if (_editor == null) return;
         var ed = _editor;
 
-        foreach (var e in ed.PreviewEntities) DrawEntity(dc, e, PreviewPen, PreviewPen.Brush);
+        if (ed.PreviewEntities.Count > 0)
+        {
+            PrepareBuilder(_uiBuilder);
+            foreach (var e in ed.PreviewEntities) _uiBuilder.DrawEntity(dc, e, PreviewPen, PreviewPen.Brush);
+        }
 
         var cur = ToScreen(ed.Cursor);
         if (ed.RubberBase is { } rb && ed.PreviewEntities.Count == 0)
@@ -841,7 +980,7 @@ public sealed class CadCanvas : FrameworkElement
         }
         if (ed.TrackLabel is { } label && ed.ActiveTrackLines.Count > 0)
         {
-            var ft = new FormattedText(label, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, _typeface, 11, TrackTextBrush,
+            var ft = new FormattedText(label, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Face, 11, TrackTextBrush,
                 VisualTreeHelper.GetDpi(this).PixelsPerDip);
             var at = new Point(cur.X + 16, cur.Y + 14);
             dc.DrawRectangle(TipBack, null, new Rect(at.X - 3, at.Y - 1, ft.Width + 6, ft.Height + 2));
@@ -914,15 +1053,18 @@ public sealed class CadCanvas : FrameworkElement
 
     // ================================================================ Yardımcılar
 
-    private Pen GetPen(EntColor c)
+    private static Pen GetPen(EntColor c)
     {
-        if (_penCache.TryGetValue(c, out var pen)) return pen;
-        var col = Color.FromRgb(c.R, c.G, c.B);
-        // Koyu zeminde siyah/çok koyu renkleri görünür yap
-        if (c.R + c.G + c.B < 90) col = Colors.White;
-        pen = FrozenPen(col, 1);
-        _penCache[c] = pen;
-        return pen;
+        lock (_penCache)
+        {
+            if (_penCache.TryGetValue(c, out var pen)) return pen;
+            var col = Color.FromRgb(c.R, c.G, c.B);
+            // Koyu zeminde siyah/çok koyu renkleri görünür yap
+            if (c.R + c.G + c.B < 90) col = Colors.White;
+            pen = FrozenPen(col, 1);
+            _penCache[c] = pen;
+            return pen;
+        }
     }
 
     private static Pen FrozenPen(Color c, double thickness, bool dashed = false)

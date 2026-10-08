@@ -322,7 +322,8 @@ public sealed class CadDocument
 
     // Büyük çizimlerde her çizim/yakalama/tıklamada tüm nesnelerin sınır kutusunu yeniden
     // hesaplamak yüzlerce ms sürüyordu. Belge değiştiğinde (RaiseChanged) önbellek temizlenir.
-    private readonly Dictionary<Entity, BBox> _bounds = new(ReferenceEqualityComparer.Instance);
+    // Çizim sahnesi arka planda kurulabildiği için eşzamanlı erişime uygun sözlük.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Entity, BBox> _bounds = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>Nesnenin (önbellekli) sınır kutusu.</summary>
     public BBox BoundsOf(Entity e)
