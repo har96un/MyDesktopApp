@@ -24,6 +24,13 @@ public sealed class AppSettings
     public string HatchPattern { get; set; } = "ANSI31";
     public double HatchScale { get; set; } = 1;
 
+    // Birim: çizim her zaman mm saklanır; inç modunda gösterim ve giriş inçtir
+    public bool InchMode { get; set; }
+    /// <summary>İnç değerleri kesirli (1 3/8) yazılsın; false ise ondalık (1.375).</summary>
+    public bool InchFractional { get; set; }
+    /// <summary>Kesirli yazımda en küçük payda (2, 4, 8, 16, 32, 64, 128).</summary>
+    public int InchDenominator { get; set; } = 64;
+
     // Son açılan dosyalar
     public List<string> RecentFiles { get; set; } = new();
 

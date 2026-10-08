@@ -25,7 +25,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         BuildRibbon();
-        DrawArea.CursorMoved += p => CoordText.Text = $"{Vec2.Format(p.X),12}, {Vec2.Format(p.Y),12}";
+        DrawArea.CursorMoved += p => CoordText.Text = $"{Units.FormatLength(p.X),12}, {Units.FormatLength(p.Y),12}";
 
         var first = CreateTab();
         SnapToggle.IsChecked = first.Editor.SnapEnabled;
@@ -174,8 +174,8 @@ public partial class MainWindow : Window
         {
             var all = _doc.Extents();
             SelectionInfo.Text = $"Seçim yok. Toplam {_doc.Entities.Count} nesne.\n" +
-                                 (all.IsEmpty ? "" : $"Çizim sınırı:\n  Min {Vec2.Format(all.Min)}\n  Max {Vec2.Format(all.Max)}\n" +
-                                                     $"Genişlik {Vec2.Format(all.Width)}  Yükseklik {Vec2.Format(all.Height)}");
+                                 (all.IsEmpty ? "" : $"Çizim sınırı:\n  Min {Units.FormatPoint(all.Min)}\n  Max {Units.FormatPoint(all.Max)}\n" +
+                                                     $"Genişlik {Units.FormatLength(all.Width)}  Yükseklik {Units.FormatLength(all.Height)}");
             UpdateRibbonState();
             return;
         }
@@ -184,9 +184,9 @@ public partial class MainWindow : Window
         var types = sel.GroupBy(e => e.TypeName).Select(g => $"{g.Key}×{g.Count()}");
         SelectionInfo.Text =
             $"{sel.Count} nesne: {string.Join(", ", types)}\n" +
-            $"Min  {Vec2.Format(b.Min)}\n" +
-            $"Max  {Vec2.Format(b.Max)}\n" +
-            $"Genişlik {Vec2.Format(b.Width)}  Yükseklik {Vec2.Format(b.Height)}" +
+            $"Min  {Units.FormatPoint(b.Min)}\n" +
+            $"Max  {Units.FormatPoint(b.Max)}\n" +
+            $"Genişlik {Units.FormatLength(b.Width)}  Yükseklik {Units.FormatLength(b.Height)}" +
             (sel.Any(e => e.GroupId != null)
                 ? "\nGrup: " + string.Join(", ", sel.Where(e => e.GroupId != null).Select(e => e.GroupId).Distinct())
                 : "") +

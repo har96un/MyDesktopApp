@@ -100,6 +100,10 @@
                 <ToggleButton x:Name="TrackToggle" Content="YAKALAMA İZİ (F11)" Focusable="False" Padding="6,1" Click="Toggle_Click"
                               ToolTip="Bir yakalama noktası üzerinde imleci yarım saniye bekletin; o noktanın yatay/dikey hizası, çizgi uzantısı ve diki izlenir. İki izin kesişimine yakalanır."/>
             </StatusBarItem>
+            <StatusBarItem>
+                <ToggleButton x:Name="InchToggle" Content="İNÇ" Focusable="False" Padding="6,1" Click="InchToggle_Click"
+                              ToolTip="İnç modu: koordinatlar, uzunluklar ve ölçü yazıları inç gösterilir; yazdığınız değerler inç kabul edilir (1&quot; = 25,4 mm). Çizim ve kaydedilen dosya mm kalır. Ondalık/kesirli yazım Ayarlar'dan seçilir."/>
+            </StatusBarItem>
             <Separator/>
             <StatusBarItem>
                 <TextBlock x:Name="StatusText" Foreground="#FF555555"/>

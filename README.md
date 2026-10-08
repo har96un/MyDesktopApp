@@ -40,6 +40,9 @@ ve tekrar DWG/DXF olarak kaydetmektir.
 - **Blok açma:** Aynalanmış, eşit olmayan ölçekli, döndürülmüş ve dizi (MINSERT) bloklar doğru açılır.
 - **Son açılanlar, otomatik kayıt ve kurtarma:** Beklenmedik kapanmada bir sonraki açılışta çizim kurtarılır.
 - **Sağ tık menüsü:** Komut yokken sağ tık bağlam menüsü açar; komut sırasında Enter görevi görür.
+- **İnç modu (durum çubuğunda İNÇ):** Koordinatlar, uzunluklar, özellik değerleri ve ölçü yazıları inç gösterilir; yazılan
+  değerler inç kabul edilir (1" = 25,4 mm). Çizim ve dosyalar mm kalır. Ondalık (1.375) veya kesirli (1 3/8) yazım Ayarlar → Birim'den
+  seçilir; girişte `3/8`, `1-3/8` ve tek değer için `25mm` / `2"` yazılabilir.
 - **Ayarlar:** Firma/logo, kütüphane klasörü, otomatik kayıt aralığı, ölçü ve tarama varsayılanları,
   komutlara ek kısa adlar ve klavye kısayolları (ör. Ctrl+Shift+T → TRIM).
 

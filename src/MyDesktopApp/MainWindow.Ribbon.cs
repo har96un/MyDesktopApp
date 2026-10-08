@@ -654,7 +654,7 @@ public partial class MainWindow
         var b = hasSel ? _doc.Extents(_doc.ExpandGroups(_doc.Selection)) : _doc.Extents();
         string txt = b.IsEmpty
             ? "Çizim boş"
-            : $"{(hasSel ? "Seçim" : "Tüm çizim")}\nG {Vec2.Format(Math.Round(b.Width, 3))}\nY {Vec2.Format(Math.Round(b.Height, 3))}\nSol alt {Vec2.Format(Math.Round(b.MinX, 3))}, {Vec2.Format(Math.Round(b.MinY, 3))}";
+            : $"{(hasSel ? "Seçim" : "Tüm çizim")}\nG {Units.FormatLength(b.Width, Units.Inch ? 4 : 3)}\nY {Units.FormatLength(b.Height, Units.Inch ? 4 : 3)}\nSol alt {Units.FormatLength(b.MinX, Units.Inch ? 4 : 3)}, {Units.FormatLength(b.MinY, Units.Inch ? 4 : 3)}";
         foreach (var tb in _ribSizeTexts) tb.Text = txt;
 
         UpdateLayerCombos();

@@ -87,7 +87,8 @@ public sealed class DimensionEntity : Entity
     {
         get
         {
-            string val = FormatValue(Measurement);
+            // Uzunluk ölçüleri gösterim biriminde (inç modunda inç); dosyaya ölçü nesnesi olarak yazıldığı için etkilenmez
+            string val = Kind == DimKind.Angular ? FormatValue(Measurement) : Units.FormatLength(Measurement, Decimals);
             val = Kind switch
             {
                 DimKind.Radius => "R" + val,

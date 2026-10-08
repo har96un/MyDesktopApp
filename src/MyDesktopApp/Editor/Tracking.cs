@@ -186,7 +186,7 @@ public sealed partial class CadEditor
         ActiveTrackLines.Add(best.L);
         double dist0 = Vec2.Distance(best.L.Origin, best.Proj);
         double ang = GeoUtil.RadToDeg((best.Proj - best.L.Origin).Angle);
-        TrackLabel = $"{best.L.Label}: {Vec2.Format(dist0)} < {Vec2.Format(ang)}°";
+        TrackLabel = $"{best.L.Label}: {Units.FormatLength(dist0)} < {Vec2.Format(ang)}°";
         return true;
     }
 }

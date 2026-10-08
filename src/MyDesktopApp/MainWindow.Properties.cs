@@ -99,6 +99,28 @@ public partial class MainWindow
         });
     }
 
+    /// <summary>Uzunluk özellik satırı: geçerli birimde (mm/inç) gösterilir ve girilir; değer mm olarak işlenir.</summary>
+    private void PropLen(string label, double value, Action<double>? commit, Func<double, bool>? valid = null)
+    {
+        PropText(Units.Inch ? label + " (\")" : label, Units.FormatLength(value), commit == null ? null : s =>
+        {
+            if (!Units.TryParseLength(s, out double v) || (valid != null && !valid(v)))
+            {
+                AppendHistory($"Geçersiz değer: {s}");
+                _doc.RaiseSelectionChanged();
+                return;
+            }
+            commit(v);
+        });
+    }
+
+    /// <summary>Salt okunur alan satırı (mm² / inç²).</summary>
+    private void PropArea(string label, double valueMm2, Action<double>? commit)
+    {
+        double shown = Units.Inch ? valueMm2 / (Units.MmPerInch * Units.MmPerInch) : valueMm2;
+        PropText(Units.Inch ? label + " (inç²)" : label, Fmt(shown), null);
+    }
+
     private void PropCombo(string label, IEnumerable<string> items, string? selected, Action<string> commit)
     {
         var cb = new ComboBox { FontSize = 12 };
@@ -163,8 +185,8 @@ public partial class MainWindow
             {
                 var dims = sel.Cast<DimensionEntity>().ToList();
                 PropHeader($"{dims.Count} ölçü");
-                PropNum("Yazı yük.", dims[0].TextHeight, v => EditSelection(() => dims.ForEach(d => d.TextHeight = v)), v => v > 0);
-                PropNum("Ok boyu", dims[0].ArrowSize, v => EditSelection(() => dims.ForEach(d => d.ArrowSize = v)), v => v > 0);
+                PropLen("Yazı yük.", dims[0].TextHeight, v => EditSelection(() => dims.ForEach(d => d.TextHeight = v)), v => v > 0);
+                PropLen("Ok boyu", dims[0].ArrowSize, v => EditSelection(() => dims.ForEach(d => d.ArrowSize = v)), v => v > 0);
                 PropNum("Ondalık", dims[0].Decimals, v => EditSelection(() => dims.ForEach(d => d.Decimals = (int)v)), v => v >= 0 && v <= 8);
             }
             else if (sel.All(e => e is HatchEntity))
@@ -179,7 +201,7 @@ public partial class MainWindow
             {
                 var ts = sel.Cast<TextEntity>().ToList();
                 PropHeader($"{ts.Count} yazı");
-                PropNum("Yükseklik", ts[0].Height, v => EditSelection(() => ts.ForEach(t => t.Height = v)), v => v > 0);
+                PropLen("Yükseklik", ts[0].Height, v => EditSelection(() => ts.ForEach(t => t.Height = v)), v => v > 0);
             }
             return;
         }
@@ -189,37 +211,37 @@ public partial class MainWindow
         switch (ent)
         {
             case LineEntity l:
-                PropNum("Başlangıç X", l.Start.X, v => EditSelection(() => l.Start = new Vec2(v, l.Start.Y)));
-                PropNum("Başlangıç Y", l.Start.Y, v => EditSelection(() => l.Start = new Vec2(l.Start.X, v)));
-                PropNum("Bitiş X", l.End.X, v => EditSelection(() => l.End = new Vec2(v, l.End.Y)));
-                PropNum("Bitiş Y", l.End.Y, v => EditSelection(() => l.End = new Vec2(l.End.X, v)));
-                PropNum("Uzunluk", l.Length, v => EditSelection(() =>
+                PropLen("Başlangıç X", l.Start.X, v => EditSelection(() => l.Start = new Vec2(v, l.Start.Y)));
+                PropLen("Başlangıç Y", l.Start.Y, v => EditSelection(() => l.Start = new Vec2(l.Start.X, v)));
+                PropLen("Bitiş X", l.End.X, v => EditSelection(() => l.End = new Vec2(v, l.End.Y)));
+                PropLen("Bitiş Y", l.End.Y, v => EditSelection(() => l.End = new Vec2(l.End.X, v)));
+                PropLen("Uzunluk", l.Length, v => EditSelection(() =>
                 {
                     var d = (l.End - l.Start).Normalized();
                     if (d.LengthSquared < 1e-12) d = Vec2.UnitX;
                     l.End = l.Start + d * v;
                 }), v => v > 0);
                 PropNum("Açı (°)", (l.End - l.Start).Angle, v => EditSelection(() => l.End = l.Start + Vec2.Polar(l.Length, v)), degrees: true);
-                PropNum("ΔX", l.End.X - l.Start.X, null);
-                PropNum("ΔY", l.End.Y - l.Start.Y, null);
+                PropLen("ΔX", l.End.X - l.Start.X, null);
+                PropLen("ΔY", l.End.Y - l.Start.Y, null);
                 break;
 
             case CircleEntity c:
-                PropNum("Merkez X", c.Center.X, v => EditSelection(() => c.Center = new Vec2(v, c.Center.Y)));
-                PropNum("Merkez Y", c.Center.Y, v => EditSelection(() => c.Center = new Vec2(c.Center.X, v)));
-                PropNum("Yarıçap", c.Radius, v => EditSelection(() => c.Radius = v), v => v > 0);
-                PropNum("Çap", c.Radius * 2, v => EditSelection(() => c.Radius = v / 2), v => v > 0);
-                PropNum("Çevre", 2 * Math.PI * c.Radius, null);
-                PropNum("Alan", Math.PI * c.Radius * c.Radius, null);
+                PropLen("Merkez X", c.Center.X, v => EditSelection(() => c.Center = new Vec2(v, c.Center.Y)));
+                PropLen("Merkez Y", c.Center.Y, v => EditSelection(() => c.Center = new Vec2(c.Center.X, v)));
+                PropLen("Yarıçap", c.Radius, v => EditSelection(() => c.Radius = v), v => v > 0);
+                PropLen("Çap", c.Radius * 2, v => EditSelection(() => c.Radius = v / 2), v => v > 0);
+                PropLen("Çevre", 2 * Math.PI * c.Radius, null);
+                PropArea("Alan", Math.PI * c.Radius * c.Radius, null);
                 break;
 
             case ArcEntity a:
-                PropNum("Merkez X", a.Center.X, v => EditSelection(() => a.Center = new Vec2(v, a.Center.Y)));
-                PropNum("Merkez Y", a.Center.Y, v => EditSelection(() => a.Center = new Vec2(a.Center.X, v)));
-                PropNum("Yarıçap", a.Radius, v => EditSelection(() => a.Radius = v), v => v > 0);
+                PropLen("Merkez X", a.Center.X, v => EditSelection(() => a.Center = new Vec2(v, a.Center.Y)));
+                PropLen("Merkez Y", a.Center.Y, v => EditSelection(() => a.Center = new Vec2(a.Center.X, v)));
+                PropLen("Yarıçap", a.Radius, v => EditSelection(() => a.Radius = v), v => v > 0);
                 PropNum("Başl. açısı (°)", a.StartAngle, v => EditSelection(() => a.StartAngle = GeoUtil.NormalizeAngle(v)), degrees: true);
                 PropNum("Bitiş açısı (°)", a.EndAngle, v => EditSelection(() => a.EndAngle = GeoUtil.NormalizeAngle(v)), degrees: true);
-                PropNum("Yay uzunluğu", a.Radius * a.Sweep, null);
+                PropLen("Yay uzunluğu", a.Radius * a.Sweep, null);
                 break;
 
             case PolylineEntity p:
@@ -232,7 +254,7 @@ public partial class MainWindow
                         for (int i = 1; i < pts.Count; i++) s += Vec2.Distance(pts[i - 1], pts[i]);
                         return s;
                     });
-                    PropNum("Uzunluk", len, null);
+                    PropLen("Uzunluk", len, null);
                     PropNum("Köşe sayısı", p.VertexView.Count, null);
                     if (p.VertexView.Count == 0) break;
                     if (_propVertexOwner != p) { _propVertex = 0; _propVertexOwner = p; }
@@ -245,8 +267,8 @@ public partial class MainWindow
                     });
                     int k = _propVertex;
                     var vx = p.VertexView[k];
-                    PropNum("  X", vx.P.X, v => EditSelection(() => p.Vertices[k] = new PolyVertex(new Vec2(v, p.Vertices[k].P.Y), p.Vertices[k].Bulge)));
-                    PropNum("  Y", vx.P.Y, v => EditSelection(() => p.Vertices[k] = new PolyVertex(new Vec2(p.Vertices[k].P.X, v), p.Vertices[k].Bulge)));
+                    PropLen("  X", vx.P.X, v => EditSelection(() => p.Vertices[k] = new PolyVertex(new Vec2(v, p.Vertices[k].P.Y), p.Vertices[k].Bulge)));
+                    PropLen("  Y", vx.P.Y, v => EditSelection(() => p.Vertices[k] = new PolyVertex(new Vec2(p.Vertices[k].P.X, v), p.Vertices[k].Bulge)));
                     PropNum("  Bulge", vx.Bulge, v => EditSelection(() => p.Vertices[k] = new PolyVertex(p.Vertices[k].P, v)));
                     break;
                 }
@@ -263,25 +285,25 @@ public partial class MainWindow
                 }
                 PropCombo("Hizalama", MyDesktopApp.UI.TextDialog.AlignNames, MyDesktopApp.UI.TextDialog.AlignNames[(int)t.Align],
                     s => EditSelection(() => t.Align = (TextAlign)Array.IndexOf(MyDesktopApp.UI.TextDialog.AlignNames, s)));
-                PropNum("X", t.Position.X, v => EditSelection(() => t.Position = new Vec2(v, t.Position.Y)));
-                PropNum("Y", t.Position.Y, v => EditSelection(() => t.Position = new Vec2(t.Position.X, v)));
-                PropNum("Yükseklik", t.Height, v => EditSelection(() => t.Height = v), v => v > 0);
+                PropLen("X", t.Position.X, v => EditSelection(() => t.Position = new Vec2(v, t.Position.Y)));
+                PropLen("Y", t.Position.Y, v => EditSelection(() => t.Position = new Vec2(t.Position.X, v)));
+                PropLen("Yükseklik", t.Height, v => EditSelection(() => t.Height = v), v => v > 0);
                 PropNum("Açı (°)", t.Rotation, v => EditSelection(() => t.Rotation = GeoUtil.NormalizeAngle(v)), degrees: true);
                 break;
 
             case DimensionEntity d:
                 PropText("Ölçü değeri", d.FormatValue(d.Measurement), null);
                 PropText("Metin", d.TextOverride ?? "", s => EditSelection(() => d.TextOverride = string.IsNullOrWhiteSpace(s) ? null : s));
-                PropNum("Yazı yük.", d.TextHeight, v => EditSelection(() => d.TextHeight = v), v => v > 0);
-                PropNum("Ok boyu", d.ArrowSize, v => EditSelection(() => d.ArrowSize = v), v => v > 0);
+                PropLen("Yazı yük.", d.TextHeight, v => EditSelection(() => d.TextHeight = v), v => v > 0);
+                PropLen("Ok boyu", d.ArrowSize, v => EditSelection(() => d.ArrowSize = v), v => v > 0);
                 PropNum("Ondalık", d.Decimals, v => EditSelection(() => d.Decimals = (int)v), v => v >= 0 && v <= 8);
                 PropsPanel.Children.Add(new TextBlock { Text = "Metinde <> ölçü değerinin yerine geçer.", FontSize = 10, Foreground = Brushes.Gray });
                 break;
 
             case BlockRefEntity br:
                 PropText("Blok adı", br.Name, null);
-                PropNum("Ekleme X", br.InsertPoint.X, v => EditSelection(() => br.Transform(Mat2D.Translation(new Vec2(v - br.InsertPoint.X, 0)))));
-                PropNum("Ekleme Y", br.InsertPoint.Y, v => EditSelection(() => br.Transform(Mat2D.Translation(new Vec2(0, v - br.InsertPoint.Y)))));
+                PropLen("Ekleme X", br.InsertPoint.X, v => EditSelection(() => br.Transform(Mat2D.Translation(new Vec2(v - br.InsertPoint.X, 0)))));
+                PropLen("Ekleme Y", br.InsertPoint.Y, v => EditSelection(() => br.Transform(Mat2D.Translation(new Vec2(0, v - br.InsertPoint.Y)))));
                 PropNum("Açı (°)", br.RotationRad, v => EditSelection(() => br.Transform(Mat2D.Rotation(v - br.RotationRad, br.InsertPoint))), degrees: true);
                 PropNum("Ölçek", br.ScaleFactor, v => EditSelection(() => br.Transform(Mat2D.Scaling(v / br.ScaleFactor, br.InsertPoint))), v => v > 1e-9);
                 PropText("Aynalı", br.Mirrored ? "Evet" : "Hayır", null);

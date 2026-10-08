@@ -144,7 +144,7 @@ public sealed class LibraryWindow : Window
                     var bb = MyDesktopApp.Geometry.BBox.Empty;
                     foreach (var en in ents) bb.Add(en.Bounds());
                     string infoText = bb.IsEmpty ? $"{ents.Count} nesne"
-                        : $"{MyDesktopApp.Geometry.Vec2.Format(Math.Round(bb.Width, 2))} × {MyDesktopApp.Geometry.Vec2.Format(Math.Round(bb.Height, 2))}";
+                        : $"{MyDesktopApp.Geometry.Units.FormatLength(bb.Width, MyDesktopApp.Geometry.Units.Inch ? 3 : 2)} × {MyDesktopApp.Geometry.Units.FormatLength(bb.Height, MyDesktopApp.Geometry.Units.Inch ? 3 : 2)}";
                     Dispatcher.Invoke(() =>
                     {
                         if (it.Img != null) it.Img.Source = thumb;

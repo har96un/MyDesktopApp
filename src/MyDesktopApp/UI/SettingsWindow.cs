@@ -66,6 +66,9 @@ public sealed class SettingsWindow : Window
     private readonly TextBox _dimDec = Box();
     private readonly ComboBox _hatch = new() { MinWidth = 160 };
     private readonly TextBox _hatchScale = Box();
+    private readonly CheckBox _inch = new() { Content = "İnç modu (uzunluklar inç gösterilir ve girilir)", Margin = new Thickness(0, 2, 0, 8) };
+    private readonly ComboBox _inchStyle = new() { MinWidth = 200 };
+    private readonly ComboBox _inchDen = new() { MinWidth = 120 };
     private readonly ObservableCollection<ShortcutRow> _rows = new();
 
     private static TextBox Box() => new() { Padding = new Thickness(3), MinWidth = 120 };
@@ -84,6 +87,7 @@ public sealed class SettingsWindow : Window
         var tabs = new TabControl { Margin = new Thickness(8) };
         tabs.Items.Add(new TabItem { Header = "Genel", Content = GeneralTab() });
         tabs.Items.Add(new TabItem { Header = "Ölçü ve Tarama", Content = DimTab() });
+        tabs.Items.Add(new TabItem { Header = "Birim", Content = UnitTab() });
         tabs.Items.Add(new TabItem { Header = "Komut Kısa Adları ve Kısayollar", Content = ShortcutTab() });
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(8) };
@@ -177,6 +181,36 @@ public sealed class SettingsWindow : Window
         p.Children.Add(new TextBlock
         {
             Text = "Bu değerler yeni ölçü ve taramalar için kullanılır. Mevcut nesneleri Özellikler panelinden değiştirebilirsiniz.",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = System.Windows.Media.Brushes.Gray,
+            Margin = new Thickness(0, 10, 0, 0)
+        });
+        return p;
+    }
+
+    private static readonly int[] Denominators = { 2, 4, 8, 16, 32, 64, 128 };
+
+    private FrameworkElement UnitTab()
+    {
+        _inch.IsChecked = _s.InchMode;
+        _inchStyle.Items.Add("Ondalık (1.375\")");
+        _inchStyle.Items.Add("Kesirli (1 3/8\")");
+        _inchStyle.SelectedIndex = _s.InchFractional ? 1 : 0;
+        foreach (var d in Denominators) _inchDen.Items.Add("1/" + d);
+        _inchDen.SelectedIndex = Math.Max(0, Array.IndexOf(Denominators, _s.InchDenominator));
+        _inchDen.IsEnabled = _s.InchFractional;
+        _inchStyle.SelectionChanged += (_, _) => _inchDen.IsEnabled = _inchStyle.SelectedIndex == 1;
+        var p = new StackPanel { Margin = new Thickness(12) };
+        p.Children.Add(_inch);
+        p.Children.Add(Field("İnç yazımı:", _inchStyle));
+        p.Children.Add(Field("Kesir hassasiyeti:", _inchDen));
+        p.Children.Add(new TextBlock
+        {
+            Text = "Çizim her zaman milimetre olarak saklanır ve kaydedilir; inç modu yalnızca ekranda gösterilen ve " +
+                   "komut satırına yazılan uzunlukları değiştirir (1\" = 25,4 mm). Açılar ve ölçek katsayıları birimsizdir.\n\n" +
+                   "Girişte kesir de yazılabilir: 3/8 veya 1-3/8 (komut satırında boşluk Enter sayıldığından tam + kesir tire ile yazılır; Özellikler panelinde 1 3/8 de olur). " +
+                   "Tek bir değeri diğer birimde girmek için sonuna birim ekleyin: 25mm, 2\" veya 2in.\n\n" +
+                   "İnç modu durum çubuğundaki İNÇ düğmesiyle de açılıp kapatılabilir. Ölçü/tarama varsayılanları mm cinsindendir.",
             TextWrapping = TextWrapping.Wrap,
             Foreground = System.Windows.Media.Brushes.Gray,
             Margin = new Thickness(0, 10, 0, 0)
@@ -278,6 +312,9 @@ public sealed class SettingsWindow : Window
         _s.DimDecimals = dd;
         _s.HatchPattern = _hatch.SelectedItem as string ?? "ANSI31";
         _s.HatchScale = hs;
+        _s.InchMode = _inch.IsChecked == true;
+        _s.InchFractional = _inchStyle.SelectedIndex == 1;
+        _s.InchDenominator = Denominators[Math.Max(0, _inchDen.SelectedIndex)];
         _s.Aliases = aliases;
         _s.Shortcuts = keys;
         _s.Save();

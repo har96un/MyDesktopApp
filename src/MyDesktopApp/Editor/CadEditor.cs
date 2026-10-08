@@ -32,6 +32,8 @@ public sealed class PointRequest
     public Func<Vec2, IEnumerable<Entity>>? Preview { get; init; }
     public string[] Keywords { get; init; } = Array.Empty<string>();
     public bool AllowNumber { get; init; }
+    /// <summary>Girilen sayı bir uzunluk mu (inç modunda inçten mm'ye çevrilir). Açı/ölçek için false.</summary>
+    public bool NumberIsLength { get; init; }
     public bool AllowEnter { get; init; }
 }
 
@@ -362,22 +364,23 @@ public sealed partial class CadEditor
             return true;
         }
 
-        // Sayı
-        if (double.TryParse(text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double num))
+        // Sayı (uzunluklar geçerli birimde: inç modunda inç; kesir ve 2" / 25mm gibi birim ekleri kabul edilir)
+        if (req?.AllowNumber == true)
         {
-            if (req?.AllowNumber == true)
+            double num;
+            if (req.NumberIsLength ? Units.TryParseLength(text, out num) : Units.TryParseNumber(text, out num))
             {
                 input = new UserInput(InputType.Number, Number: num);
                 return true;
             }
-            if (req?.Base is { } b)
-            {
-                // Doğrudan mesafe girişi: imleç yönünde
-                var dir = (Cursor - b).Normalized();
-                if (dir.LengthSquared < 1e-12) dir = Vec2.UnitX;
-                input = new UserInput(InputType.Point, Point: b + dir * num);
-                return true;
-            }
+        }
+        else if (req?.Base is { } b && Units.TryParseLength(text, out double dist))
+        {
+            // Doğrudan mesafe girişi: imleç yönünde
+            var dir = (Cursor - b).Normalized();
+            if (dir.LengthSquared < 1e-12) dir = Vec2.UnitX;
+            input = new UserInput(InputType.Point, Point: b + dir * dist);
+            return true;
         }
         return false;
     }
@@ -397,7 +400,7 @@ public sealed partial class CadEditor
             if (!double.TryParse(angS, NumberStyles.Float, inv, out double ang)) return false;
             double dist;
             if (ds.Length == 0) dist = Vec2.Distance(Cursor, basePt);
-            else if (!double.TryParse(ds, NumberStyles.Float, inv, out dist)) return false;
+            else if (!Units.TryParseLength(ds, out dist)) return false;
             var v = Vec2.Polar(dist, GeoUtil.DegToRad(ang));
             // @d<a ve <a: temel noktaya göre; d<a: orijine göre (mutlak)
             p = (rel || ds.Length == 0) ? basePt + v : v;
@@ -406,8 +409,8 @@ public sealed partial class CadEditor
 
         var parts = s.Split(',');
         if (parts.Length != 2) return false;
-        if (!double.TryParse(parts[0].Trim(), NumberStyles.Float, inv, out double x)) return false;
-        if (!double.TryParse(parts[1].Trim(), NumberStyles.Float, inv, out double y)) return false;
+        if (!Units.TryParseLength(parts[0], out double x)) return false;
+        if (!Units.TryParseLength(parts[1], out double y)) return false;
         p = rel ? basePt + new Vec2(x, y) : new Vec2(x, y);
         return true;
     }

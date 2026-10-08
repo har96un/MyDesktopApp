@@ -496,7 +496,7 @@ public sealed partial class CadEditor
     {
         string name = chamfer ? "Pah" : "Yuvarlatma";
         string[] kws = chamfer ? new[] { "Mesafe", "Polyline" } : new[] { "Yaricap", "Polyline" };
-        Log(chamfer ? $"  Pah mesafeleri: {F(_chamferD1)}, {F(_chamferD2)}" : $"  Yuvarlatma yarıçapı: {F(_filletRadius)}");
+        Log(chamfer ? $"  Pah mesafeleri: {L(_chamferD1)}, {L(_chamferD2)}" : $"  Yuvarlatma yarıçapı: {L(_filletRadius)}");
         Doc.ClearSelection();
 
         SegPick first;

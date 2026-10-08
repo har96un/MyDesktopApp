@@ -8,6 +8,7 @@ using Microsoft.Win32;
 using MyDesktopApp.IO;
 using MyDesktopApp.Model;
 using MyDesktopApp.UI;
+using MyDesktopApp.Geometry;
 
 namespace MyDesktopApp;
 
@@ -25,8 +26,32 @@ public partial class MainWindow
 
     private void InitFeatures()
     {
+        Units.Changed += OnUnitsChanged;
         ApplySettings();
         _autosaveTimer.Tick += (_, _) => Autosave();
+    }
+
+    /// <summary>Durum çubuğu İNÇ düğmesi: gösterim/giriş birimini değiştirir ve ayara kaydeder.</summary>
+    private void InchToggle_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.InchMode = InchToggle.IsChecked == true;
+        _settings.Save();
+        Units.Set(_settings.InchMode, _settings.InchFractional, _settings.InchDenominator);
+        AppendHistory(Units.Inch
+            ? "İnç modu açık: uzunluklar inç gösterilir ve girilir (çizim mm olarak saklanır). Kesir: 3/8, 1-3/8. Tek değer için 25mm ya da 2\" yazabilirsiniz."
+            : "İnç modu kapalı: uzunluklar mm.");
+        InputBox.Focus();
+    }
+
+    /// <summary>Birim değişince uzunluk gösteren her şeyi yeniler.</summary>
+    private void OnUnitsChanged()
+    {
+        InchToggle.IsChecked = Units.Inch;
+        CoordText.Text = $"{Units.FormatLength(_editor.Cursor.X),12}, {Units.FormatLength(_editor.Cursor.Y),12}";
+        UpdatePanel();
+        if (!PropsPanel.IsKeyboardFocusWithin) BuildPropertiesPanel();
+        UpdateRibbonState();
+        DrawArea.RedrawAll();   // ölçü yazıları
     }
 
     private void OnLoadedFeatures()
@@ -82,6 +107,8 @@ public partial class MainWindow
     private void ApplySettings()
     {
         foreach (var t in _tabs) ApplySettingsTo(t, report: t == _active);
+        Units.Set(_settings.InchMode, _settings.InchFractional, _settings.InchDenominator);
+        InchToggle.IsChecked = Units.Inch;
 
         _shortcuts.Clear();
         foreach (var (key, cmd) in _settings.Shortcuts)

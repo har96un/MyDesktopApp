@@ -48,7 +48,7 @@ public sealed partial class CadEditor
         var p = new Vec2(b.MinX + fx * (b.MaxX - b.MinX), b.MinY + fy * (b.MaxY - b.MinY));
         LastBoxRef = (fx, fy);
         ApplyTransform(items, Mat2D.Translation(-p));
-        Log($"  {BoxRefName(fx, fy)} ({F(p)}) → 0,0   ·   {items.Count} nesne, {F(b.MaxX - b.MinX)} × {F(b.MaxY - b.MinY)}");
+        Log($"  {BoxRefName(fx, fy)} ({L(p)}) → 0,0   ·   {items.Count} nesne, {L(b.MaxX - b.MinX)} × {L(b.MaxY - b.MinY)}");
         ZoomExtents();
         StateChanged?.Invoke();
     }
@@ -141,7 +141,7 @@ public sealed partial class CadEditor
         _lastBlock = name;
         NotifyDocumentChanged();
         Doc.SetSelection(new[] { bref });
-        Log($"  \"{name}\" bloğu {(redefine ? "yeniden tanımlandı" : "oluşturuldu")} ({bd.Entities.Count} nesne, temel nokta {F(bp)}).");
+        Log($"  \"{name}\" bloğu {(redefine ? "yeniden tanımlandı" : "oluşturuldu")} ({bd.Entities.Count} nesne, temel nokta {L(bp)}).");
     }
 
     // ================================================================ Blok ekle
@@ -196,7 +196,7 @@ public sealed partial class CadEditor
             Doc.Add(bref);
             NotifyDocumentChanged();
             Doc.SetSelection(new[] { bref });
-            Log($"  \"{bd.Name}\" eklendi: {F(r.Point)}");
+            Log($"  \"{bd.Name}\" eklendi: {L(r.Point)}");
             return;
         }
     }

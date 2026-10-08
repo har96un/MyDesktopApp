@@ -61,8 +61,9 @@ public sealed class TextDialog : Window
 
         var left = new StackPanel();
         _height = NumBox(init.Height);
+        _height.Text = MyDesktopApp.Geometry.Units.FormatLength(init.Height);
         _angle = NumBox(init.RotationDeg);
-        left.Children.Add(Row("Yazı yüksekliği:", _height));
+        left.Children.Add(Row(MyDesktopApp.Geometry.Units.Inch ? "Yazı yüksekliği (\"):" : "Yazı yüksekliği:", _height));
         left.Children.Add(Row("Açı (°):", _angle));
         var quick = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
         foreach (var a in new[] { 0, 90, 180, 270 })
@@ -163,7 +164,7 @@ public sealed class TextDialog : Window
     {
         string text = _text.Text.Replace("\r\n", "\n").Replace("\r", "\n").TrimEnd();
         if (text.Length == 0) { MessageBox.Show(this, "Metin boş olamaz.", Title); return; }
-        if (!Parse(_height.Text, out double h) || h <= 0) { MessageBox.Show(this, "Yazı yüksekliği pozitif bir sayı olmalı.", Title); return; }
+        if (!MyDesktopApp.Geometry.Units.TryParseLength(_height.Text, out double h) || h <= 0) { MessageBox.Show(this, "Yazı yüksekliği pozitif bir sayı olmalı.", Title); return; }
         if (!Parse(_angle.Text, out double a)) { MessageBox.Show(this, "Açı geçerli bir sayı olmalı.", Title); return; }
         Result = new TextSpec(text, h, a, _alignValue);
         DialogResult = true;

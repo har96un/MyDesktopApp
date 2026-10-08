@@ -110,6 +110,9 @@ public sealed partial class CadEditor
 
     private static string F(double v) => Vec2.Format(v);
     private static string F(Vec2 v) => Vec2.Format(v);
+    /// <summary>Uzunluk / nokta: geçerli gösterim biriminde (mm veya inç).</summary>
+    private static string L(double v) => Units.FormatLength(v);
+    private static string L(Vec2 v) => Units.FormatPoint(v);
 
     private async Task<double?> GetNumberOrDistance(string prompt, Vec2? basePt, double? def = null)
     {
@@ -117,9 +120,10 @@ public sealed partial class CadEditor
         {
             var r = await GetInput(new PointRequest
             {
-                Prompt = prompt + (def is { } d ? $" <{F(d)}>" : ""),
+                Prompt = prompt + (def is { } d ? $" <{L(d)}>" : ""),
                 Base = basePt,
                 AllowNumber = true,
+                NumberIsLength = true,
                 AllowEnter = def != null
             });
             switch (r.Type)
@@ -233,7 +237,7 @@ public sealed partial class CadEditor
         });
         if (r.Type != InputType.Point) return;
         AddEntity(RectFrom(a, r.Point));
-        Log($"  Dikdörtgen: {F(Math.Abs(r.Point.X - a.X))} × {F(Math.Abs(r.Point.Y - a.Y))}");
+        Log($"  Dikdörtgen: {L(Math.Abs(r.Point.X - a.X))} × {L(Math.Abs(r.Point.Y - a.Y))}");
     }
 
     private async Task CmdCircle()
@@ -247,6 +251,7 @@ public sealed partial class CadEditor
                 Prompt = "Yarıçap (veya nokta)",
                 Base = c,
                 AllowNumber = true,
+                NumberIsLength = true,
                 Keywords = new[] { "Cap" },
                 Preview = p => new Entity[] { new CircleEntity(c, Math.Max(1e-9, Vec2.Distance(c, p))) }
             });
@@ -343,7 +348,7 @@ public sealed partial class CadEditor
             else
             {
                 ApplyTransform(sel, m);
-                Log($"  Taşındı: Δ = {F(target - basePt)}");
+                Log($"  Taşındı: Δ = {L(target - basePt)}");
                 return;
             }
         }
@@ -395,7 +400,7 @@ public sealed partial class CadEditor
             }
             else continue;
             ApplyTransform(sel, Mat2D.Rotation(ang, basePt));
-            Log($"  {F(GeoUtil.RadToDeg(ang))}° döndürüldü, merkez {F(basePt)}");
+            Log($"  {F(GeoUtil.RadToDeg(ang))}° döndürüldü, merkez {L(basePt)}");
             return;
         }
     }
@@ -420,7 +425,7 @@ public sealed partial class CadEditor
             else if (r.Type == InputType.Point) f = Vec2.Distance(r.Point, basePt);
             else if (r.Type == InputType.Keyword)
             {
-                var r1 = await GetInput(new PointRequest { Prompt = "Referans uzunluk veya ilk nokta", AllowNumber = true });
+                var r1 = await GetInput(new PointRequest { Prompt = "Referans uzunluk veya ilk nokta", AllowNumber = true, NumberIsLength = true });
                 double refLen;
                 if (r1.Type == InputType.Number) refLen = r1.Number;
                 else if (r1.Type == InputType.Point)
@@ -854,7 +859,7 @@ public sealed partial class CadEditor
     private void MoveToOrigin(List<Entity> sel, Vec2 p)
     {
         ApplyTransform(sel, Mat2D.Translation(-p));
-        Log($"  {F(p)} noktası 0,0'a taşındı.");
+        Log($"  {L(p)} noktası 0,0'a taşındı.");
         ZoomExtents();
     }
 
@@ -887,7 +892,7 @@ public sealed partial class CadEditor
         double ang = (p2 - p1).Angle;
         var mm = Mat2D.Then(Mat2D.Translation(-p1), Mat2D.Rotation(-ang, Vec2.Zero));
         ApplyTransform(sel, mm);
-        Log($"  Hizalandı: {F(p1)} → 0,0; {F(GeoUtil.RadToDeg(-ang))}° döndürüldü.");
+        Log($"  Hizalandı: {L(p1)} → 0,0; {F(GeoUtil.RadToDeg(-ang))}° döndürüldü.");
         ZoomExtents();
     }
 
@@ -900,13 +905,13 @@ public sealed partial class CadEditor
         var b = await GetPoint("İkinci nokta", p1, c => new Entity[] { new LineEntity(p1, c) });
         if (b is not { } p2) return;
         var d = p2 - p1;
-        Log($"  Mesafe = {F(d.Length)},  ΔX = {F(d.X)},  ΔY = {F(d.Y)},  Açı = {F(GeoUtil.RadToDeg(d.Angle))}°");
+        Log($"  Mesafe = {L(d.Length)},  ΔX = {L(d.X)},  ΔY = {L(d.Y)},  Açı = {F(GeoUtil.RadToDeg(d.Angle))}°");
     }
 
     private async Task CmdId()
     {
         var a = await GetPoint("Nokta");
-        if (a is { } p) Log($"  X = {F(p.X)}   Y = {F(p.Y)}");
+        if (a is { } p) Log($"  X = {L(p.X)}   Y = {L(p.Y)}");
     }
 
     private async Task CmdList()
@@ -916,12 +921,12 @@ public sealed partial class CadEditor
         {
             string s = e switch
             {
-                LineEntity l => $"Çizgi: {F(l.Start)} → {F(l.End)}, uzunluk {F(l.Length)}",
-                CircleEntity c => $"Daire: merkez {F(c.Center)}, R {F(c.Radius)}",
-                ArcEntity a => $"Yay: merkez {F(a.Center)}, R {F(a.Radius)}, {F(GeoUtil.RadToDeg(a.StartAngle))}° → {F(GeoUtil.RadToDeg(a.EndAngle))}°",
+                LineEntity l => $"Çizgi: {L(l.Start)} → {L(l.End)}, uzunluk {L(l.Length)}",
+                CircleEntity c => $"Daire: merkez {L(c.Center)}, R {L(c.Radius)}",
+                ArcEntity a => $"Yay: merkez {L(a.Center)}, R {L(a.Radius)}, {F(GeoUtil.RadToDeg(a.StartAngle))}° → {F(GeoUtil.RadToDeg(a.EndAngle))}°",
                 PolylineEntity p => $"Polyline: {p.VertexView.Count} köşe, {(p.Closed ? "kapalı" : "açık")}",
-                TextEntity t => $"Yazı: \"{t.Value}\" @ {F(t.Position)}, h {F(t.Height)}",
-                BlockRefEntity br => $"Blok: \"{br.Name}\" @ {F(br.InsertPoint)}, {F(GeoUtil.RadToDeg(br.RotationRad))}°, ölçek {F(br.ScaleFactor)}{(br.Mirrored ? ", aynalı" : "")}",
+                TextEntity t => $"Yazı: \"{t.Value}\" @ {L(t.Position)}, h {L(t.Height)}",
+                BlockRefEntity br => $"Blok: \"{br.Name}\" @ {L(br.InsertPoint)}, {F(GeoUtil.RadToDeg(br.RotationRad))}°, ölçek {F(br.ScaleFactor)}{(br.Mirrored ? ", aynalı" : "")}",
                 _ => e.TypeName
             };
             Log($"  [{e.Layer}] {s}");

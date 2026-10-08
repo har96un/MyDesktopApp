@@ -60,7 +60,7 @@ public sealed class SolidViewWindow : Window
             sp.Children.Add(new TextBlock { Text = name, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 6, 0, 0) });
             sp.Children.Add(new TextBlock
             {
-                Text = $"{axes}\n{Vec2.Format(Math.Round(bb.Width, 2))} × {Vec2.Format(Math.Round(bb.Height, 2))}",
+                Text = $"{axes}\n{Units.FormatLength(bb.Width, Units.Inch ? 3 : 2)} × {Units.FormatLength(bb.Height, Units.Inch ? 3 : 2)}",
                 Foreground = Brushes.DimGray,
                 FontSize = 11,
                 TextAlignment = TextAlignment.Center,
